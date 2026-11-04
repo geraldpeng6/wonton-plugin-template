@@ -15,6 +15,7 @@
 #                                             没有浏览器时验证网页，也能带着同一个会话走完应用自己的登录链
 #   scripts/dev.sh mcp list                   Bot 经 MCP 总线能调到的工具（JSON）
 #   scripts/dev.sh mcp call <工具> [<JSON>]   经 MCP 总线调用工具，参数是 JSON 对象，默认 {}
+#                                             会改数据的工具等卡片答了才执行、才返回：另开终端跑 approve
 #   scripts/dev.sh approve [--watch]          批准等回答的确认卡片（主人令牌）：走会改数据的工具时用，--watch 一直盯着，Ctrl-C 结束
 #   scripts/dev.sh smoke                      对工作区的插件跑合并前的端到端冒烟：起一套一次性实例，跑完清理
 #   scripts/dev.sh pair                       在终端里出配对二维码，给 App 用

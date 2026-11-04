@@ -390,7 +390,7 @@ README 的图标一节只留一句来源和商标说明，指向 `NOTICE`，不�
 | `scripts/dev.sh web [--jar <文件>] [--fresh] [<路径> [<curl 参数>…]]` | 以主人的身份请求插件网页上的地址（默认 `/`），其余参数交给 curl：没有浏览器时验证网页和接口。默认沿用 `session` 的会话，能带着它走完应用自己的登录链 |
 | `scripts/dev.sh session [--new]` | 建立（`--new` 重建）主人会话，cookie 留在 `.wonton/session.cookies` |
 | `scripts/dev.sh mcp list` | Bot 经 MCP 总线能调到的工具（JSON），在 Hermes gateway 容器里用官方 SDK 执行 |
-| `scripts/dev.sh mcp call <工具> [<JSON>]` | 经 MCP 总线调用工具，参数是 JSON 对象，默认 `{}` |
+| `scripts/dev.sh mcp call <工具> [<JSON>]` | 经 MCP 总线调用工具，参数是 JSON 对象，默认 `{}`。会改数据的工具等确认卡片答了才执行、才返回：另开终端跑 `approve` |
 | `scripts/dev.sh approve [--watch]` | 批准等回答的确认卡片（用主人令牌，和正式环境同一个接口）：走会改数据的工具时用，`--watch` 一直盯着，Ctrl-C 结束。核心要带 `GET /_wonton/api/confirmations` |
 | `scripts/dev.sh smoke` | 合并前的端到端冒烟：装得上、网页打得开、主人身份能用、工具 Bot 调得到，任何 FAIL 退出非 0 |
 | `scripts/dev.sh pair` | 终端里出配对二维码，App 扫码连上这套开发环境 |
