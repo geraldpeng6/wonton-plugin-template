@@ -15,6 +15,7 @@
 #                                             没有浏览器时验证网页，也能带着同一个会话走完应用自己的登录链
 #   scripts/dev.sh mcp list                   Bot 经 MCP 总线能调到的工具（JSON）
 #   scripts/dev.sh mcp call <工具> [<JSON>]   经 MCP 总线调用工具，参数是 JSON 对象，默认 {}
+#   scripts/dev.sh approve [--watch]          批准等回答的确认卡片（主人令牌）：走会改数据的工具时用，--watch 一直盯着，Ctrl-C 结束
 #   scripts/dev.sh smoke                      对工作区的插件跑合并前的端到端冒烟：起一套一次性实例，跑完清理
 #   scripts/dev.sh pair                       在终端里出配对二维码，给 App 用
 #   scripts/dev.sh down                       停下核心，数据都留着；插件的容器由核心管，照常运行
@@ -397,6 +398,40 @@ mcp() {
   esac
 }
 
+# 批准现在等回答的卡片。回答失败（别人刚答过、刚过期）的说明原因，接着处理下一张。一张都没有时返回 1。
+approve_pending() {
+  local list id title reply count=0
+  list="$(api GET /_wonton/api/confirmations 2>&1)" || die "取不到等回答的卡片：$(error_text "$list")"
+  while IFS=$'\t' read -r id title; do
+    [[ -n "$id" ]] || continue
+    count=$((count + 1))
+    if reply="$(api POST "/_wonton/confirmations/$id" -H 'Content-Type: application/json' -d '{"answer": "approve"}' 2>&1)"; then
+      echo "已批准：$title"
+    else
+      echo "没批准：$title：$(error_text "$reply")" >&2
+    fi
+  done < <(python3 -c '
+import json, sys
+for card in json.load(sys.stdin)["confirmations"]:
+    print(card["id"], card["title"], sep="\t")
+' <<<"$list")
+  ((count > 0))
+}
+
+approve() {
+  need_env
+  case "${1:-}" in
+    "") approve_pending || echo "没有等回答的卡片" ;;
+    --watch)
+      while true; do
+        approve_pending || true
+        sleep 2
+      done
+      ;;
+    *) usage ;;
+  esac
+}
+
 pair() {
   need_env
   "$state/wonton" pair
@@ -436,6 +471,7 @@ case "${1:-}" in
   web) web "${@:2}" ;;
   session) session "${@:2}" ;;
   mcp) mcp "${@:2}" ;;
+  approve) approve "${@:2}" ;;
   smoke) "$root/scripts/smoke.sh" "${@:2}" ;;
   pair) pair ;;
   down)
