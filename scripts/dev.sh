@@ -155,6 +155,8 @@ up() {
   docker run --rm --user "$(id -u):$(id -g)" -v "$state:$state" "$image" init "$state" "$instance.wonton.localhost" >/dev/null
   info "启动核心、身份提供方和 Matrix 服务器（第一次要拉镜像，几分钟）"
   compose up -d --wait --wait-timeout 600 || die "没有在 10 分钟内就绪，看看日志：scripts/dev.sh logs"
+  need_env
+  fill_profile
   echo "开发环境就绪：http://$instance.wonton.localhost:$port/（实例 $instance）"
   echo "浏览器打开它，用 scripts/dev.sh token 输出的主人令牌登录；接着 scripts/dev.sh install 装插件"
 }
@@ -182,6 +184,28 @@ api() {
   curl -sS --noproxy '*' --fail-with-body -X "$method" \
     -H "Authorization: Bearer $owner" -H "Accept-Language: zh-CN,zh;q=0.9" \
     "$@" "$base_url$path"
+}
+
+# 要邮箱的插件装不上没填资料的核心。用户在 App 里填，开发环境没有 App，这里替他填；填过的不动。显示名用用户名，和没填过
+# 名字时一样。没有这个接口（404）的核心从 .env 读邮箱。
+fill_profile() {
+  local result status body
+  result="$(api GET /_wonton/api/owner-profile -w '\n%{http_code}' 2>/dev/null)" || true
+  status="${result##*$'\n'}"
+  body="${result%$'\n'*}"
+  [[ "$status" != 404 ]] || return 0
+  [[ "$status" == 200 ]] || die "读不到你的资料：$(error_text "$body")"
+  body="$(python3 - "$body" "$owner_email" <<'PY'
+import json, sys
+profile = json.loads(sys.argv[1])
+if not profile["email"]:
+    print(json.dumps({"display_name": profile["display_name"] or profile["username"], "email": sys.argv[2]}))
+PY
+  )" || die "看不懂核心回的资料：$result"
+  [[ -n "$body" ]] || return 0
+  info "填上你的资料（$owner_email）"
+  result="$(api PUT /_wonton/api/owner-profile -H 'Content-Type: application/json' -d "$body")" ||
+    die "填不上你的资料：$(error_text "$result")"
 }
 
 # 接口报错时给人看的一行：核心回的是 {"error": {"kind", "message"}}，别的原样给出。

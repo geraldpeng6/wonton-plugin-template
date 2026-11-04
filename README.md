@@ -233,7 +233,7 @@ services:
 | `WONTON_APP_ID`、`WONTON_APP_DATA`、`TZ`、`PUID`、`PGID` | 总是 |
 | `WONTON_APP_URL` | 有 `webui`：插件网页的地址，不带末尾的 `/`，应用生成链接和回调地址时用 |
 | `WONTON_OWNER_NAME` | 申请 `owner.identity`：固定的主人用户名；旧清单兼容条件见下文 |
-| `WONTON_OWNER_EMAIL` | 同上，且主人配了邮箱；值是建容器时的快照 |
+| `WONTON_OWNER_EMAIL` | 同上，且用户填了邮箱；值是建容器时的快照。开发环境里 `scripts/dev.sh up` 替你填 |
 | `WONTON_SHARE_<名称>` | 申请了这个共享文件夹 |
 | `WONTON_OIDC_*` | `sso: oidc` |
 | `WONTON_CORE_ADDRESS` | `sso: proxy`：核心在本插件网络里的固定地址，用于应用的可信代理配置 |
