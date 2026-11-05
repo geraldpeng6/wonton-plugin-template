@@ -1,7 +1,7 @@
 /* 云吞页面令牌。App 会把这些变量的真实值写到根元素（明暗、重点色、字号、栏高都跟着变）；
    这里的值只在网页不经 App 直接打开（比如开发时用浏览器看）时生效。
    页面的颜色、字体、圆角只用这些变量写，就自动是云吞的样子；变量只增不改名。
-   清单和取值见 wonton-docs 的 plugin-spec.md “底栏页面”，推导规则见 ADR-0026。 */
+   清单和取值见 wonton-docs 的 plugin-spec.md “底栏页面”。 */
 :root {
   color-scheme: light dark;
 
