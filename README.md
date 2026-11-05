@@ -145,6 +145,7 @@ docker buildx imagetools inspect nginx:1.30.6-alpine
 - `none`（默认）：网关只校验登录，应用保留自己的登录，或者本来就不需要登录。新插件默认这样：装好后第一次打开，用户在应用里
   自己注册管理员。插件网页仍然在网关的登录后面，只有用户打得开注册页面。
 
+出网且上游没有可信的代理白名单时用 OIDC。
 SSO 的接入条件见规范的[网页入口与单点登录](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md#网页入口与单点登录)：
 不能依赖脚本预建账号、改应用数据或每次启动核对，做不到就用 `none`。身份变量的授权另见第 7 步。
 
@@ -327,7 +328,6 @@ x-wonton:
 | --- | --- |
 | `icon` | 包里的 PNG 或 SVG；规则见规范的[图标和截图](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md#图标和截图)及[图标用什么](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md#图标用什么) |
 | `screenshots` | 仓库里 1 到 6 张 PNG 或 JPEG，每张不超过 1 MiB，长边建议至少 1280，横屏竖屏不要混着用。不算插件包 |
-| `category` | `ai`、`agent`、`photos`、`media`、`files`、`documents`、`productivity`、`communication`、`home`、`network`、`security`、`developer`、`downloads`、`tools` 之一；`system` 只给系统插件 |
 | `author` | 插件包的作者：`name`，可选 `url`（HTTPS） |
 | `homepage` | 应用的主页，HTTPS |
 | `license` | 应用的许可证，SPDX 表达式，如 `AGPL-3.0-only`。插件包自己的许可证写在仓库的 LICENSE 里，从模板新建时换成作者自己的名字和年份 |
@@ -336,7 +336,7 @@ x-wonton:
 | `about` | 详细介绍，多语言纯文本，空行分段，每种语言不超过 4000 个字符 |
 | `release_notes` | 这个版本的更新说明，多语言纯文本，每种语言不超过 2000 个字符，升级提示里显示；数据迁移不可逆时要写明 |
 
-官方商店要求有 `icon`、`category`、`license`、`author` 和 `notices`。
+官方商店要求有 `icon`、`tags`、`license`、`author` 和 `notices`。
 
 `NOTICE` 跟着插件包保存和分发，核心重新编码图标时也不留元数据，所以图标的许可只能写在这里：
 
@@ -387,14 +387,17 @@ README 的图标一节只留一句来源和商标说明，指向 `NOTICE`，不�
 | `scripts/dev.sh status` | 开发环境的服务和装着的插件 |
 | `scripts/dev.sh logs [<服务>]` | 跟着看核心的日志；给了插件的服务名就看那个服务的 |
 | `scripts/dev.sh token` | 用户令牌 |
-| `scripts/dev.sh web [--jar <文件>] [--fresh] [<路径> [<curl 参数>…]]` | 以用户的身份请求插件网页上的地址（默认 `/`），其余参数交给 curl：没有浏览器时验证网页和接口。默认沿用 `session` 的会话，能带着它走完应用自己的登录链 |
+| `scripts/dev.sh web [--jar <文件>] [--fresh] [--sso] [<路径> [<curl 参数>…]]` | 以用户的身份请求插件网页上的地址；默认沿用 `session` 的会话。`--sso` 会跟随重定向，提交 JS 自动表单的隐藏字段 |
+| `scripts/dev.sh api <方法> <路径> [<curl 参数>…]` | 带用户令牌调用核心管理接口 |
+| `scripts/dev.sh egress <地址>` | 读取当前出口代理设置，保留核心返回的 `restarts` 和直连网段后设置新地址 |
 | `scripts/dev.sh session [--new]` | 建立（`--new` 重建）用户会话，cookie 留在 `.wonton/session.cookies` |
 | `scripts/dev.sh mcp list` | Bot 经 MCP 总线能调到的工具（JSON），在 Hermes gateway 容器里用官方 SDK 执行 |
 | `scripts/dev.sh mcp call <工具> [<JSON>]` | 经 MCP 总线调用工具，参数是 JSON 对象，默认 `{}` |
 | `scripts/dev.sh smoke` | 合并前的端到端冒烟：装得上、网页打得开、用户身份能用、工具 Bot 调得到，任何 FAIL 退出非 0 |
 | `scripts/dev.sh pair` | 终端里出配对二维码，App 扫码连上这套开发环境 |
 | `scripts/dev.sh down` | 停下，数据都留着 |
-| `scripts/dev.sh purge` | 删掉整个开发环境 |
+| `scripts/dev.sh reset` | 清理当前实例的插件容器和网络，保留核心和数据；按实例隔离，不动其他实例 |
+| `scripts/dev.sh purge [--yes]` | 删掉整个开发环境；非交互执行必须带 `--yes` |
 
 `smoke` 把工作区复制到临时目录，起一套以 `smoke` 开头的一次性实例，四项都跑真实请求，跑完删掉容器、网络、卷和目录，
 不动已有的 `.wonton`。插件自己的探测写在 `scripts/smoke-probes.sh`（模板带示例），没写探测的项 FAIL 并给出写法。
@@ -469,7 +472,8 @@ scripts/check.sh
 - 提醒（退出码 0）：镜像没有按摘要固定，长期运行的服务没有健康检查，没有图标，图标的角是透明的，截图太小或横竖混用。
 
 `scripts/check.sh --official` 按官方商店的要求：前三项提醒（镜像没按摘要固定、没有健康检查、没有图标）也算不合格，
-还要有 `category`、`license` 和 `author`。
+还要有 `tags`、`license`、`author` 和 `notices`。默认核心镜像读不了现行 spec 时，错误写明镜像支持到哪个 spec、
+当前清单是哪个，并用 `WONTON_CORE_IMAGE` 指定别的镜像。
 
 ## 发布
 

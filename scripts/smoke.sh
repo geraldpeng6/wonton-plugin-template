@@ -49,7 +49,7 @@ cleanup() {
   image="$(sed -n 's/^WONTON_CORE_IMAGE=//p' "$copy/.wonton/.env" 2>/dev/null | tail -1)"
   if [[ -f "$copy/.wonton/.env" ]]; then
     say "清理实例 $instance"
-    (cd "$copy" && echo y | nice -n 19 timeout 900 scripts/dev.sh purge) >>"$LOG" 2>&1
+    (cd "$copy" && nice -n 19 timeout 900 scripts/dev.sh purge --yes) >>"$LOG" 2>&1
   fi
   docker ps -aq --filter "label=wonton.instance=$instance" | xargs -r docker rm -f >/dev/null 2>&1
   docker network ls -q --filter "label=wonton.instance=$instance" | xargs -r docker network rm >/dev/null 2>&1
