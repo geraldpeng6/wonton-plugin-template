@@ -32,7 +32,7 @@ scripts/dev.sh install
 插件要的权限，确认后装上，打印插件网页的地址。
 
 示例网页经 `sso: proxy` 拿到用户名，打开就是“你好，<用户名>”。换成真实应用时，把示例的 `description`、`about`、`tags`
-换成你的，`web/`、compose 里的两个 `configs` 和 `sso: proxy` 及其 `proxy` 删掉（默认让应用自己登录），`webui.service`、
+换成你的，`web/`、compose 里的三个 `configs` 和 `sso: proxy` 及其 `proxy` 删掉（默认让应用自己登录），`webui.service`、
 `port` 换成你的，按下面的规则重写。Chrome、Firefox 和 curl 把 `*.localhost` 直接解析到本机，不用改 hosts。
 
 ## 仓库里有什么
@@ -73,8 +73,9 @@ x-wonton:
   permissions: []
 ```
 
-- `spec` 是清单按哪一版插件规范写的，要加引号（不然 YAML 读成数字）。用到 v0.4 的 `notices` 就写 `"0.4"`；只用到
-  v0.3 的能力（如 `owner.identity`）时写 `"0.3"`；没写时按 `"0.1"`。比核心支持的版本新时装不上，提示先升级核心。
+- `spec` 是清单按哪一版插件规范写的，要加引号（不然 YAML 读成数字）。用到 v0.5 的 `tabs` 就写 `"0.5"`，用到 v0.4 的
+  `notices` 就写 `"0.4"`；只用到 v0.3 的能力（如 `owner.identity`）时写 `"0.3"`；没写时按 `"0.1"`。比核心支持的版本新时
+  装不上，提示先升级核心。
 - `id` 是反向域名，全局唯一，装上以后不能改：至少两段，每段由小写字母、数字和单个连字符组成，总长不超过 63。用你自己的
   域名或 GitHub 用户名开头，如 `app.alice.photos`。把 `.` 换成 `-` 就是插件的 slug（`app-alice-photos`），网页地址和
   Docker 里的资源名都用它。
@@ -148,6 +149,28 @@ docker buildx imagetools inspect nginx:1.30.6-alpine
 出网且上游没有可信的代理白名单时用 OIDC。
 SSO 的接入条件见规范的[网页入口与单点登录](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md#网页入口与单点登录)：
 不能依赖脚本预建账号、改应用数据或每次启动核对，做不到就用 `none`。身份变量的授权另见第 7 步。
+
+**底栏页面（`tabs`）**：声明了 `webui` 的插件可以把页面放到底栏，由用户决定放不放、排哪里，插件改不了。示例插件声明了一个：
+
+```yaml
+  tabs:
+    - id: home
+      title: { zh: 主页, en: Home }
+      icon: tabs/home.svg
+      icon_selected: tabs/home-fill.svg
+      path: /
+```
+
+- `id` 在插件内唯一，用户固定了哪几页就按它记住，升级时不要改。一个插件最多 4 项。
+- `title` 显示在底栏和页面标题上，`zh` 不超过 4 个字、`en` 不超过 8 个字母。
+- `icon`、`icon_selected` 是单色图标（PNG 或 SVG），只取透明通道，颜色由 App 上色；`icon_selected`（实心）可不写。
+- `layout` 默认 `inset`：页面夹在 App 的两条栏中间，现成的应用不会被挡。适配过的页面写 `edge-to-edge`：页面铺满，
+  内容从栏下滚过，用 `--wonton-inset-top`、`--wonton-inset-bottom` 留出栏的位置。
+- 页面的颜色、字体、圆角只用 `web/tokens.css` 里的变量写，就跟着 App 的明暗和重点色，不用自己写 `prefers-color-scheme`。
+  顶栏和底栏是 App 的，页面不要自己画。
+- 页面要切到聊天说话，用桥的 `ui/message`（草稿放进输入框，用户点发送才发）；断网、再点一次标签这类事，监听
+  `window` 上的 `wonton:connection`、`wonton:tab-reselected` 事件。字段和事件的权威说明见规范的
+  [底栏页面](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md#底栏页面tabs)。
 
 ### 4. 数据
 
