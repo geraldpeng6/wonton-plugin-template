@@ -1,4 +1,5 @@
 scripts/dev.sh
+scripts/dev-mcp.sh
 scripts/dev-resources.sh
 scripts/dev_settings.py
 scripts/check.sh

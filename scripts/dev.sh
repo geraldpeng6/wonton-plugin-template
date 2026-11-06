@@ -17,6 +17,8 @@
 #   scripts/dev.sh egress <地址>                读取设置后用同样的 restarts 和直连网段设置出口代理
 #   scripts/dev.sh mcp list                   Bot 经 MCP 总线能调到的工具（JSON）
 #   scripts/dev.sh mcp call <工具> [<JSON>]   经 MCP 总线调用工具，参数是 JSON 对象，默认 {}
+#   scripts/dev.sh mcp --direct list|call …   直连工作区清单的 MCP 服务，只调试插件本身，不走总线权限和确认
+#   scripts/dev.sh approve [--watch]          用主人令牌批准确认卡片；--watch 持续批准，Ctrl-C 停止
 #   scripts/dev.sh smoke                      对工作区的插件跑合并前的端到端冒烟：起一套一次性实例，跑完清理
 #   scripts/dev.sh pair                       在终端里出配对二维码，给 App 用
 #   scripts/dev.sh down                       停下核心，数据都留着；插件的容器由核心管，照常运行
@@ -529,23 +531,74 @@ web() {
   curl -sS --noproxy '*' --fail-with-body -b "$jar" -c "$jar" "$@" "$url$path"
 }
 
-# MCP 客户端在 Hermes gateway 容器里跑：那里有 WONTON_MCP_URL 和官方 SDK（python3）。
+# shellcheck source=scripts/dev-mcp.sh
+. "$root/scripts/dev-mcp.sh"
+
 mcp() {
-  local sub="${1:-}" gw url
+  local direct="" sub gw url
+  if [[ "${1:-}" == --direct ]]; then direct=1; shift; fi
+  sub="${1:-}"
+  case "$sub" in
+    list) [[ $# -eq 1 ]] || usage ;;
+    call) [[ $# -ge 2 && $# -le 3 && -n "$2" ]] || usage ;;
+    *) usage ;;
+  esac
   need_env
+  if [[ -n "$direct" ]]; then
+    mcp_direct "$@"
+    return
+  fi
   gw="wonton-$instance--com-nousresearch-hermes--gateway"
   docker container inspect "$gw" >/dev/null 2>&1 ||
-    die "没有 Hermes gateway 容器（$gw）：先 scripts/dev.sh install 装上 Hermes"
+    die "没有 Hermes gateway 容器（$gw）：先装上 Hermes"
   url="$(docker exec "$gw" printenv WONTON_MCP_URL 2>/dev/null)" || true
   [[ -n "$url" ]] || die "gateway 容器里没有 WONTON_MCP_URL：它的清单没申请 tools？"
   case "$sub" in
     list) docker exec -i "$gw" python3 - list "$url" <"$root/scripts/mcp_client.py" ;;
-    call)
-      [[ -n "${2:-}" ]] || usage
-      docker exec -i "$gw" python3 - call "$url" "$2" "${3:-{\}}" <"$root/scripts/mcp_client.py"
-      ;;
+    call) docker exec -i "$gw" python3 - call "$url" "$2" "${3:-{\}}" <"$root/scripts/mcp_client.py" ;;
+  esac
+}
+
+approve_pending() {
+  local list cards id title reply failed=0
+  list="$(api GET /_wonton/api/confirmations)" || die "取不到等回答的卡片：$(error_text "$list")"
+  cards="$(python3 - "$list" <<'PY'
+import json, sys
+for card in json.loads(sys.argv[1])["confirmations"]:
+    print(card["id"], card["title"].replace("\t", " ").replace("\n", " "), sep="\t")
+PY
+  )" || die "看不懂核心回的确认卡片：$list"
+  [[ -n "$cards" ]] || return 3
+  while IFS=$'\t' read -r id title; do
+    if reply="$(api POST "/_wonton/confirmations/$id" -H 'Content-Type: application/json' -d '{"answer":"approve"}')"; then
+      echo "已批准：$title"
+    else
+      echo "没批准：$title：$(error_text "$reply")" >&2
+      failed=1
+    fi
+  done <<<"$cards"
+  return "$failed"
+}
+
+approve() {
+  local watch="" status
+  case "${1:-}" in
+    '') ;;
+    --watch) watch=1 ;;
     *) usage ;;
   esac
+  [[ $# -le 1 ]] || usage
+  need_env
+  while true; do
+    status=0
+    approve_pending || status=$?
+    if [[ -z "$watch" ]]; then
+      if ((status == 3)); then echo "没有等回答的卡片"; return 0; fi
+      return "$status"
+    fi
+    ((status == 0 || status == 3)) || return "$status"
+    sleep 2
+  done
 }
 
 pair() {
@@ -712,6 +765,7 @@ case "${1:-}" in
   egress) egress_proxy "${@:2}" ;;
   session) session "${@:2}" ;;
   mcp) mcp "${@:2}" ;;
+  approve) approve "${@:2}" ;;
   smoke) "$root/scripts/smoke.sh" "${@:2}" ;;
   pair) pair ;;
   down)
