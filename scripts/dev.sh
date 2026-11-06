@@ -665,6 +665,10 @@ kit_update() (
   for path in "${files[@]}" scripts/KIT; do
     mv "$stage/$path" "$root/$path"
   done
+  if [[ -f "$root/.github/workflows/plugin-check.yml" ]]; then
+    rm "$root/.github/workflows/plugin-check.yml"
+    info "已删除本地 .github/workflows/plugin-check.yml，CI 改为调用模板的固定提交。"
+  fi
   git -C "$root" diff --stat
 )
 
