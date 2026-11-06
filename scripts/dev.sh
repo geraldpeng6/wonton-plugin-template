@@ -29,6 +29,8 @@
 set -euo pipefail
 # shellcheck source=scripts/lib.sh
 . "$(dirname "$0")/lib.sh"
+# shellcheck source=scripts/dev-resources.sh
+. "$root/scripts/dev-resources.sh"
 
 usage() {
   sed -n 's/^#   //p' "$0" >&2
@@ -539,13 +541,7 @@ pair() {
 
 remove_instance_runtime() {
   local label="label=wonton.instance=$instance" prefix="wonton-$instance--"
-  docker ps -a --filter "$label" --format '{{.ID}} {{.Names}}' |
-    while read -r id name; do
-      case "$name" in
-        "${prefix}core") ;;
-        "$prefix"*) printf '%s\n' "$id" ;;
-      esac
-    done | xargs -r docker rm -f >/dev/null
+  remove_instance_containers
   docker network ls --filter "$label" --format '{{.ID}} {{.Name}}' |
     while read -r id name; do
       case "$name" in
@@ -567,7 +563,7 @@ reset_environment() {
 
 
 purge() {
-  local yes="" answer image
+  local yes="" answer image kind rows id name failed=""
   case "${1:-}" in
     '') ;;
     --yes) yes=1 ;;
@@ -582,15 +578,22 @@ purge() {
     read -r -p "删掉整个开发环境（实例 $instance），包括装着的插件和它们的数据？[y/N] " answer
     [[ "$answer" == [yY] ]] || die "没删"
   fi
-  [[ ! -f "$state/compose.yaml" ]] || compose down --volumes --remove-orphans
-  # 插件的资源由核心建，带着实例名的标签；别的核心建的没有这个标签，不会删到。
-  local filter="label=wonton.instance=$instance"
-  docker ps -aq --filter "$filter" | xargs -r docker rm -f >/dev/null
-  docker network ls -q --filter "$filter" | xargs -r docker network rm >/dev/null
-  docker volume ls -q --filter "$filter" | xargs -r docker volume rm >/dev/null
+  remove_instance_containers || failed=1
+  [[ ! -f "$state/compose.yaml" ]] || compose down --volumes --remove-orphans || failed=1
+  remove_remaining_containers || failed=1
+  for kind in network volume; do
+    rows="$(instance_resources "$kind")" || die "列不出实例 $kind，未继续清理"
+    while IFS=$'\t' read -r id name; do
+      [[ -n "$id" ]] || continue
+      docker "$kind" rm "$id" >/dev/null || failed=1
+    done <<<"$rows"
+  done
+  check_instance_removed || die "实例 $instance 还有残留；未删除设置和数据，请处理后再 purge"
+  [[ -z "$failed" ]] || die "实例 $instance 清理时有命令失败；设置和数据保留，请核对后再 purge"
+  warn_shared_egress || die "检查共享出口资源失败；设置和数据保留"
   # 核心以 root 运行，数据目录里有 root 的文件，所以在容器里以 root 删。
   image="$(setting WONTON_CORE_IMAGE)"
-  docker run --rm --user 0 --entrypoint rm -v "$root:/repo" "$image" -rf /repo/.wonton
+  docker run --rm --network none --user 0 --entrypoint rm -v "$(dirname "$state"):/state-parent" "$image" -rf "/state-parent/$(basename "$state")"
   echo "删掉了实例 $instance"
 }
 
