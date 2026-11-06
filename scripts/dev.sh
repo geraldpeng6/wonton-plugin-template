@@ -652,7 +652,7 @@ kit_update() (
     die "开发套件清单缺少 kit.files 或 check.yml"
   fi
   workflow="$stage/.github/workflows/check.yml"
-  sed -E "s|uses: (\./|geraldpeng6/wonton-plugin-template/)\.github/workflows/plugin-check\.yml(@[^[:space:]]+)?|uses: geraldpeng6/wonton-plugin-template/.github/workflows/plugin-check.yml@$sha|" \
+  sed -E "s~uses: (\./|geraldpeng6/wonton-plugin-template/)\.github/workflows/plugin-check\.yml(@[^[:space:]]+)?~uses: geraldpeng6/wonton-plugin-template/.github/workflows/plugin-check.yml@$sha~" \
     "$workflow" >"$stage/check.yml"
   mv "$stage/check.yml" "$workflow"
   grep -qF "uses: geraldpeng6/wonton-plugin-template/.github/workflows/plugin-check.yml@$sha" "$workflow" ||
