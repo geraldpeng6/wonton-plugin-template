@@ -754,6 +754,8 @@ if [[ "${1:-}" == kit-update ]]; then
 fi
 
 need docker curl python3
+# 起容器前剥掉宿主机的 Docker 客户端代理（见 lib.sh 的 strip_docker_proxies；空参数=用 $state 下的默认目录）。
+strip_docker_proxies ""
 case "${1:-}" in
   up) up ;;
   install) install_plugin "${@:2}" ;;
