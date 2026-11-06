@@ -129,7 +129,7 @@ forget_environment() {
 # 卸载插件时可能删掉这台 Docker 上别的核心装的同一个插件，所以不能用。
 check_core_image() {
   local usage
-  usage="$(docker run --rm "$1" plugin pack 2>&1 || true)"
+  usage="$(docker run --rm --network none "$1" plugin pack 2>&1 || true)"
   [[ "$usage" == *"plugin pack"* ]] ||
     die "核心镜像 $1 太旧，不支持开发环境（没有 wonton-core plugin pack 和 WONTON_INSTANCE）：换新版本"
 }
