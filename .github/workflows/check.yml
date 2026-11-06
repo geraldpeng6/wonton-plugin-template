@@ -1,0 +1,13 @@
+name: 检查
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    uses: ./.github/workflows/plugin-check.yml

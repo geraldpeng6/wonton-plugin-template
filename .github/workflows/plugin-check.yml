@@ -1,0 +1,61 @@
+name: 插件检查
+
+on:
+  workflow_call:
+    inputs:
+      core-image:
+        description: 核心镜像（留空使用 scripts/lib.sh 的默认值）
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      # 可复用工作流检出的是调用方的插件仓库，不是套件仓库。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 源文件不超过 800 行
+        shell: python
+        run: |
+          import os
+          import subprocess
+          import sys
+
+          paths = subprocess.check_output([
+              'git', 'ls-files', '-z', '--',
+              '*.rs', '*.py', '*.sh', '*.js', '*.ts', '*.go', '*.kt', '*.swift',
+          ]).split(b'\0')
+          failed = False
+          for raw_path in filter(None, paths):
+              path = os.fsdecode(raw_path)
+              with open(path, 'rb') as source:
+                  lines = sum(1 for _ in source)
+              if lines > 800:
+                  print(f'{path!r}: {lines} 行（上限 800）')
+                  failed = True
+          sys.exit(1 if failed else 0)
+      - name: ShellCheck
+        run: shellcheck scripts/*.sh
+      - name: 官方插件检查
+        env:
+          WONTON_CORE_IMAGE: ${{ inputs.core-image }}
+        run: scripts/check.sh --official
+      - name: Rust 格式、Clippy 和测试
+        if: ${{ hashFiles('Cargo.toml') != '' }}
+        run: |
+          rustup component add rustfmt clippy
+          cargo fmt --check
+          if [[ ! -f clippy.toml && ! -f .clippy.toml ]]; then
+            # Clippy 通过 CLIPPY_CONF_DIR 选择配置目录，而非通过环境变量设置单个阈值。
+            # https://doc.rust-lang.org/clippy/configuration.html
+            # https://doc.rust-lang.org/clippy/lint_configuration.html#too-many-lines-threshold
+            CLIPPY_CONF_DIR="$(mktemp -d "$RUNNER_TEMP/clippy.XXXXXX")"
+            export CLIPPY_CONF_DIR
+            printf 'too-many-lines-threshold = 100\n' > "$CLIPPY_CONF_DIR/clippy.toml"
+          fi
+          cargo clippy --all-targets -- -D warnings -W clippy::too_many_lines
+          cargo test
