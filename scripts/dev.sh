@@ -12,7 +12,7 @@
 #   scripts/dev.sh token                      用户令牌：浏览器登录和调接口都用它
 #   scripts/dev.sh session [--new]            建立用户会话（--new 重建），cookie 存在 .wonton/session.cookies
 #   scripts/dev.sh web [--jar <文件>] [--fresh] [--sso] [<路径> [<curl 参数>…]]
-#                                             以用户的身份请求插件网页；--sso 会提交 JS 自动表单并跟完重定向
+#                                             以用户的身份请求插件网页；--sso 会从清单 webui.path 的入口提交 JS 自动表单并跟完重定向
 #   scripts/dev.sh api <方法> <路径> [<curl 参数>…] 带用户令牌调用核心管理接口
 #   scripts/dev.sh egress <地址>                读取设置后用同样的 restarts 和直连网段设置出口代理
 #   scripts/dev.sh mcp list                   Bot 经 MCP 总线能调到的工具（JSON）
@@ -391,20 +391,25 @@ logs() {
   docker logs -f --tail 200 "wonton-$instance--${id//./-}--$1"
 }
 
-plugin_web_url() {
+# 插件网页入口：核心把清单的 webui.path（没写就是 /）拼在域名后面，从这里开始走应用的登录链。
+plugin_web_entry() {
   local id="$1" list
   list="$(api GET /_wonton/api/plugins)" || die "列不出插件：$(error_text "$list")"
   python3 - "$list" "$id" <<'PY'
-import urllib.parse
 import json, sys
 plugin = next((p for p in json.loads(sys.argv[1])["plugins"] if p["id"] == sys.argv[2]), None)
 if plugin is None:
     sys.exit(f"{sys.argv[2]} 还没装：先 scripts/dev.sh install")
 if not plugin.get("web_url"):
     sys.exit(f"{sys.argv[2]} 没有网页入口（清单里没写 webui）")
-parts = urllib.parse.urlsplit(plugin["web_url"])
-print(f"{parts.scheme}://{parts.netloc}")
+print(plugin["web_url"])
 PY
+}
+
+plugin_web_url() {
+  local entry
+  entry="$(plugin_web_entry "$1")" || exit 1
+  python3 -c 'import urllib.parse, sys; p = urllib.parse.urlsplit(sys.argv[1]); print(f"{p.scheme}://{p.netloc}")' "$entry"
 }
 
 session_jar() {
@@ -486,19 +491,19 @@ PY
 
 # 登进核心，再走一遍插件网页的登录跳转；--sso 还会跟完 JS 自动提交的隐藏字段表单。
 session_into() {
-  local jar="$1" new="$2" sso="${3:-}" owner url
+  local jar="$1" new="$2" sso="${3:-}" owner entry
   [[ -n "$sso" ]] && new=1
   mkdir -p "$(dirname "$jar")"
   [[ -n "$new" ]] && rm -f "$jar"
   [[ -f "$jar" ]] && return 0
   owner="$(token)"
-  url="$(plugin_web_url "$(plugin_id)")"
+  entry="$(plugin_web_entry "$(plugin_id)")"
   curl -sS --noproxy '*' --fail-with-body -o /dev/null -c "$jar" --data-urlencode "token=$owner" \
     "$base_url/_wonton/login" || die "用户令牌登录不了核心"
   if [[ -n "$sso" ]]; then
-    sso_form_login "$jar" "$url/"
+    sso_form_login "$jar" "$entry"
   else
-    curl -sS --noproxy '*' -o /dev/null -L -b "$jar" -c "$jar" -H 'Accept: text/html' "$url/" ||
+    curl -sS --noproxy '*' -o /dev/null -L -b "$jar" -c "$jar" -H 'Accept: text/html' "$entry" ||
       die "走不通插件网页的登录跳转"
   fi
 }
