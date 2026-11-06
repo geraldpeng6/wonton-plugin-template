@@ -196,7 +196,15 @@ if [[ "$DATA_NA" != 1 ]] && (( DATA_HOOKS )) && [[ -n "$upgrade_from" ]]; then
   fi
 fi
 
-if ! probes_dev install --yes >>"$LOG" 2>&1; then
+# 核心没有原地升级（同 id 再装被 precheck 拒绝）：装过升级起点后，装工作区版本走 reinstall——
+# 卸载保留数据再装回，正好就是“升级保数据”要验证的路径。
+if [[ "$data_upgrade_base" == 1 ]]; then
+  if ! probes_dev_t 900 reinstall --yes >>"$LOG" 2>&1; then
+    fail 装得上 "dev.sh reinstall --yes 失败，看 $LOG"
+    for item in 网页打得开 用户身份能用 工具Bot调得到; do fail "$item" "装不上"; done
+    exit 0
+  fi
+elif ! probes_dev install --yes >>"$LOG" 2>&1; then
   fail 装得上 "dev.sh install --yes 失败，看 $LOG"
   for item in 网页打得开 用户身份能用 工具Bot调得到; do fail "$item" "装不上"; done
   exit 0
