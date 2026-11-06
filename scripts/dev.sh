@@ -5,6 +5,7 @@
 #   scripts/dev.sh up                         起开发环境，等到都健康；再执行一次就是拉最新的核心镜像重启
 #   scripts/dev.sh install [--yes] [<引用>]   预览后安装插件：默认装工作区里的，给了 git 引用（tag、分支、提交）就装那个版本
 #   scripts/dev.sh reinstall [--yes]          卸载（保留数据）再装上工作区里的：改了插件包以后用
+#   scripts/dev.sh rebuild                    强制重建核心栈，再保数据重装工作区插件；其他插件容器不重建
 #   scripts/dev.sh uninstall [--purge]        卸载；--purge 连插件的数据一起删
 #   scripts/dev.sh status                     开发环境的服务和装着的插件
 #   scripts/dev.sh logs [<服务>]              跟着看核心的日志；给了插件的服务名就看那个服务的
@@ -88,6 +89,7 @@ first_settings() {
 
 load_settings() {
   instance="$(setting WONTON_INSTANCE)"
+  [[ "$instance" =~ ^[a-z0-9]{1,16}$ ]] || die "实例名 $instance 不合法：只能用小写字母和数字，最长 16 个字符"
   port="$(setting WONTON_PORT)"
   source="$(setting WONTON_CORE_SOURCE)"
   pull="${WONTON_PULL:-$(setting WONTON_PULL)}"
@@ -99,9 +101,7 @@ write_settings() {
   mkdir -p "$state/data"
   (
     umask 077
-    cat >"$env_file" <<EOF
-# 由 scripts/dev.sh 写出，每次 up 重写。改端口或核心镜像（WONTON_CORE_SOURCE）就改这里再 up；实例名和基础域名定下后
-# 不能改：基础域名也是 Matrix 的服务器名，实例名改了就找不到已经装上的插件。
+    python3 "$root/scripts/dev_settings.py" "$env_file" <<EOF
 WONTON_CORE_SOURCE=$source
 WONTON_CORE_IMAGE=$image
 WONTON_PULL=$pull
@@ -115,6 +115,12 @@ WONTON_DATA_DIR=$state/data
 WONTON_OWNER_EMAIL=$owner_email
 WONTON_PUID=$(id -u)
 WONTON_PGID=$(id -g)
+WONTON_LAN_ADDRESSES=
+WONTON_EGRESS_PROXY=
+WONTON_EGRESS_PROXY_DETECTED=
+WONTON_PLUGIN_SLICE=
+TZ=UTC
+RUST_LOG=info
 EOF
   )
 }
@@ -340,6 +346,14 @@ reinstall() {
     die "查不到 $id 装没装：$(error_text "$result")"
   fi
   install_plugin $yes
+}
+
+rebuild() {
+  [[ $# -eq 0 ]] || usage
+  need_env
+  info "重建核心栈（其他插件容器由核心管理，不重建）"
+  compose up -d --force-recreate --wait --wait-timeout 600 || die "没有在 10 分钟内就绪，看看日志：scripts/dev.sh logs"
+  reinstall
 }
 
 status() {
@@ -685,6 +699,7 @@ case "${1:-}" in
   up) up ;;
   install) install_plugin "${@:2}" ;;
   reinstall) reinstall "${@:2}" ;;
+  rebuild) rebuild "${@:2}" ;;
   uninstall) uninstall_plugin "${@:2}" ;;
   status) status ;;
   logs) logs "${@:2}" ;;
