@@ -37,7 +37,8 @@ LOG="$root/.wonton/smoke.log"
 : >"$LOG"
 instance="smoke$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
 SMOKE_DIR="$copy"
-SMOKE_STATE="$copy/.wonton"
+SMOKE_DEV_STATE="$copy/.wonton"
+# 数据钩子的标记文件（约定见 probes.sh 顶部）：起一次性实例时清空，data_write 覆盖写；复制出 .wonton 后建。
 SMOKE_INSTANCE="$instance"
 SMOKE_JAR="$copy/.wonton/session.cookies"
 SMOKE_TOOLS="$work/tools.json"
@@ -126,6 +127,8 @@ tar -C "$root" --exclude=.wonton --exclude=.git -cf - . | tar -C "$copy" -xf - |
 # dev.sh 从复制出来的工作区里 git archive 出 tag：.git 用符号链接指回原仓库，不复制对象。
 [[ ! -d "$root/.git" ]] || ln -s "$root/.git" "$copy/.git"
 chmod -R a+rX "$copy"
+mkdir -p "$SMOKE_DEV_STATE"
+: >"$SMOKE_STATE"
 
 probes_facts "$copy"
 probes_load

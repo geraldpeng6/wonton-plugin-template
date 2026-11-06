@@ -6,8 +6,9 @@
 #       并在 SMOKE_NOTE 里写原因。dweb / web_get 是带用户会话的请求助手，可继续走应用自己的登录链。
 # 工具：MCP_TOOL 写一个只读工具名（可带插件前缀），MCP_ARGS 是 JSON 参数；mcp_assert 从标准输入读调用结果。
 #       要断言多个工具时改成写 mcp_check；调用前要备数据时写 before_mcp。
-# 数据：合并前要验证“升级/重装不丢用户数据”时写 data_write 和 data_check（两个都写才跑）：data_write 用随机标记写
-#       一条数据并把标记原样存进 $SMOKE_STATE，data_check 读回标记去应用里找，对不上就打印看到了什么并返回非 0。
+# 数据：合并前要验证“升级/重装不丢用户数据”时写 data_write 和 data_check（两个都写才跑）：data_write 用随机
+#       标记写一条数据、把标记原样写进 $SMOKE_STATE（标记文件，dev.sh probes 复用同一个，data_write 覆盖写），
+#       data_check 读回标记去应用里找，对不上就打印看到了什么并返回非 0。
 #       应用不存用户数据时写 DATA_NA=1（两项记 N/A）。
 # 装之前要准备（如先配出口代理）：写 before_install。
 
@@ -20,7 +21,7 @@ identity_check() { # 页面回显的就是网关注入的用户名
 }
 
 # 数据：合并前要验证“升级/重装不丢用户数据”时写 data_write 和 data_check（两个都写才跑）：
-#   data_write 用随机标记写一条数据，把标记原样存进 $SMOKE_STATE；data_check 读回标记、去应用里找，
-#   找不到就打印看到了什么并返回非 0。
+#   data_write 用随机标记写一条数据，把标记原样写进 $SMOKE_STATE（标记文件，data_write 覆盖写）；data_check
+#   读回标记、去应用里找，找不到就打印看到了什么并返回非 0。
 # 应用不存用户数据时写 DATA_NA=1（两项记 N/A）。模板的示例页不存数据，所以这里是不适用。
 export DATA_NA=1

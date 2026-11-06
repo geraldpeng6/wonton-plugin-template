@@ -3,7 +3,8 @@
 # smoke.sh 和 dev.sh probes 共用这份逻辑，两边都不复制。调用方先设好：
 #   PROBES_LOG     探针输出和失败详情追加到这里，FAIL 行摘录末尾
 #   SMOKE_DIR      工作区目录（跑 scripts/dev.sh、找 smoke-probes.sh 的地方）
-#   SMOKE_STATE    开发环境的状态目录（.wonton，里面有 .env）
+#   SMOKE_DEV_STATE 开发环境的状态目录（.wonton，里面有 .env）
+#   SMOKE_STATE    数据钩子的标记文件（$SMOKE_DEV_STATE/smoke-data.state；dev.sh probes 用同一个文件，data_write 覆盖写）
 #   SMOKE_INSTANCE 实例名
 #   SMOKE_JAR      用户会话 cookie 的存放文件
 #   SMOKE_TOOLS    MCP tools/list 的输出文件
@@ -14,6 +15,9 @@
 #   probes_run [探针名…]  跑 web_assert / identity_check / mcp / data_write / data_check 各项，不给名字就全跑
 # 有 FAIL 时 DID_FAIL=1，退出码由调用方定；这里的函数不 exit，停不停由调用方决定。
 # 数据探针 data_write / data_check：插件不存用户数据时写 DATA_NA=1（两项记 N/A）。
+# 数据钩子能用的东西只有这些：SMOKE_STATE（标记文件，data_write 覆盖写、data_check 读）、SMOKE_JAR、
+# SMOKE_WEB_URL、SMOKE_OWNER、SMOKE_BASE、SMOKE_TOKEN、SMOKE_INSTANCE，助手 web_get、dweb；
+# 调用方（smoke.sh、dev.sh probes、e2e）自己的 E2E_* 变量不进钩子，别直接用。
 DID_FAIL=0
 
 say() { echo "== $*"; }
@@ -23,17 +27,17 @@ na() { echo "N/A  $1：$2"; }
 
 # 探针里跑 dev.sh 子命令都走这里：cd 到工作区，指到自己的状态目录和实例。
 probes_dev() {
-  (cd "$SMOKE_DIR" && WONTON_DEV_STATE="$SMOKE_STATE" WONTON_INSTANCE="$SMOKE_INSTANCE" nice -n 19 scripts/dev.sh "$@")
+  (cd "$SMOKE_DIR" && WONTON_DEV_STATE="$SMOKE_DEV_STATE" WONTON_INSTANCE="$SMOKE_INSTANCE" nice -n 19 scripts/dev.sh "$@")
 }
 
 # 装 tag、reinstall 限时：卡住时如实记 FAIL，不把名额占死。
 probes_dev_t() { # <秒数> <dev.sh 参数…>
   local secs="$1"; shift
-  (cd "$SMOKE_DIR" && WONTON_DEV_STATE="$SMOKE_STATE" WONTON_INSTANCE="$SMOKE_INSTANCE" nice -n 19 timeout "$secs" scripts/dev.sh "$@")
+  (cd "$SMOKE_DIR" && WONTON_DEV_STATE="$SMOKE_DEV_STATE" WONTON_INSTANCE="$SMOKE_INSTANCE" nice -n 19 timeout "$secs" scripts/dev.sh "$@")
 }
 
 probes_setting() { # 状态目录 .env 里的一项设置
-  sed -n "s/^$1=//p" "$SMOKE_STATE/.env" | tail -1
+  sed -n "s/^$1=//p" "$SMOKE_DEV_STATE/.env" | tail -1
 }
 
 # 插件钩子限时跑：函数开在子 shell 里（能看见调用方的函数和变量），超时就杀掉。
@@ -51,7 +55,7 @@ probes_hook() { # <函数名> [秒数]
   return 124
 }
 
-probes_data_write() { # 跑 data_write；标记由插件存进 $SMOKE_STATE
+probes_data_write() { # 跑 data_write；标记由插件写进 $SMOKE_STATE（标记文件）
   probes_hook data_write
 }
 
@@ -315,7 +319,8 @@ probes_cmd() { # dev.sh probes 的入口：对开发环境里装着的工作区�
   PROBES_LOG="$state/probes.log"
   : >"$PROBES_LOG"
   SMOKE_DIR="$root"
-  SMOKE_STATE="$state"
+  SMOKE_DEV_STATE="$state"
+  SMOKE_STATE="$state/smoke-data.state"
   SMOKE_INSTANCE="$instance"
   SMOKE_JAR="$(session_jar)"
   SMOKE_TOOLS="$state/probes-tools.json"
