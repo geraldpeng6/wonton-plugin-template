@@ -9,7 +9,7 @@
 | 路径 | 内容 |
 | --- | --- |
 | `docker-compose.yml` | 示例清单、nginx 服务和三个 `configs` |
-| `web/default.conf` | nginx 配置，启用 SSI 回显用户名并提供健康检查入口 |
+| `web/default.conf.template` | nginx 配置，启用 SSI 回显用户名并提供健康检查入口；只放行来自核心地址（`${WONTON_CORE_ADDRESS}`）的请求，其余来源 403 |
 | `web/index.html` | 问候页 |
 | `web/tokens.css` | 页面主题变量的后备值 |
 | `tabs/` | 示例主页的底栏图标 |
