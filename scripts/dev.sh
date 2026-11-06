@@ -32,8 +32,11 @@
 set -euo pipefail
 # shellcheck source=scripts/lib.sh
 . "$(dirname "$0")/lib.sh"
-# shellcheck source=scripts/dev-resources.sh
-. "$root/scripts/dev-resources.sh"
+# kit-update 只要 lib.sh：套件缺文件、或者从没有套件的旧仓库只复制了 dev.sh 和 lib.sh 时，它也要能跑。
+if [[ "${1:-}" != kit-update ]]; then
+  # shellcheck source=scripts/dev-resources.sh
+  . "$root/scripts/dev-resources.sh"
+fi
 
 usage() {
   sed -n 's/^#   //p' "$0" >&2
@@ -531,8 +534,10 @@ web() {
   curl -sS --noproxy '*' --fail-with-body -b "$jar" -c "$jar" "$@" "$url$path"
 }
 
-# shellcheck source=scripts/dev-mcp.sh
-. "$root/scripts/dev-mcp.sh"
+if [[ "${1:-}" != kit-update ]]; then
+  # shellcheck source=scripts/dev-mcp.sh
+  . "$root/scripts/dev-mcp.sh"
+fi
 
 mcp() {
   local direct="" sub gw url
