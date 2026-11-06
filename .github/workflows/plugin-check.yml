@@ -8,6 +8,8 @@ on:
         required: false
         type: string
         default: ''
+  # 手动入口：从“检查”工作流（check.yml）触发，或在模板仓库直接跑本工作流验证冒烟作业。
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -59,3 +61,20 @@ jobs:
           fi
           cargo clippy --all-targets -- -D warnings -W clippy::too_many_lines
           cargo test
+
+  smoke:
+    # 依赖镜像的升级 PR 合并前要过端到端冒烟（scripts/dev.sh smoke，四项真实请求，不用 mock）。
+    # 判“Dependabot 的 PR”同时看 actor 和 PR 作者：Dependabot 自己 rebase 时 actor 是 dependabot[bot]，
+    # 但任何人往 Dependabot 分支推 commit 都会把 actor 顶掉，PR 作者不会变。
+    # Dependabot 的 PR 拿到的是只读令牌：这一步只检出和起本地容器，不用仓库密钥、不写仓库。
+    if: ${{ github.event_name == 'workflow_dispatch' || github.actor == 'dependabot[bot]' || github.event.pull_request.user.login == 'dependabot[bot]' }}
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      # 可复用工作流检出的是调用方的插件仓库，不是套件仓库。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 端到端冒烟（装得上、网页打得开、用户身份能用、工具 Bot 调得到）
+        env:
+          WONTON_CORE_IMAGE: ${{ inputs.core-image }}
+        run: scripts/dev.sh smoke
