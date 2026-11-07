@@ -31,7 +31,7 @@ configs:
     file: web/tokens.css
 
 x-wonton:
-  spec: "0.5"
+  spec: "0.6"
   # 换成你自己的：反向域名形式，装上以后不能改。
   id: app.example.hello
   version: 0.1.1
