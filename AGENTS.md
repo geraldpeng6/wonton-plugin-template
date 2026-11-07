@@ -57,7 +57,7 @@
 
 插件仓库没有单元测试，改了插件包就在开发环境里走一遍：
 
-1. `scripts/check.sh --official` 没有不合格，提醒都有原因。
+1. `scripts/check.sh` 没有不合格，提醒都有原因。
 2. `scripts/dev.sh reinstall --yes` 装得上，`scripts/dev.sh status` 里是 `running healthy`。
 3. 浏览器打开插件网页：`sso: oidc` 或 `proxy` 验证自动登录；`sso: none` 验证首次注册管理员和应用自己的登录。
    把插件的主要功能用一遍。没有浏览器时用 `scripts/dev.sh web <路径> [<curl 参数>…]` 通过核心网关请求网页和接口，
