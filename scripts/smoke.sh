@@ -185,7 +185,8 @@ if [[ "$DATA_NA" != 1 ]] && (( DATA_HOOKS )) && [[ -n "$upgrade_from" ]]; then
   if probes_dev_t 600 install --yes "$upgrade_from" >>"$LOG" 2>&1 &&
     probes_status_wait "$PROBES_PLUGIN_ID" 40 >/dev/null; then
     data_upgrade_base=1
-    # 钩子要用网页地址：这一轮在主安装之前，probes_run 还没取过。
+    # 钩子要用网页地址和用户会话：这一轮在主安装之前，probes_run 还没取过、也没登录过。
+    probes_dev session >>"$LOG" 2>&1 || say "升级起点上会话建立失败（data_write 可能 401）"
     if probes_web_url 升级保数据 && probes_data_write; then data_wrote=1; else
       fail 升级保数据 "data_write 失败（tag $upgrade_from），见 $LOG 末尾：$(tail -c 200 "$LOG" | tr '\n' ' ')"
     fi
