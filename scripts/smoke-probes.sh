@@ -14,6 +14,18 @@
 #       登录页的 JS 自动表单并跟完重定向，返回的页面已带应用的登录态。
 # 工具：MCP_TOOL 写一个只读工具名（可带插件前缀），MCP_ARGS 是 JSON 参数；mcp_assert 从标准输入读调用结果。
 #       要断言多个工具时改成写 mcp_check；调用前要备数据时写 before_mcp。
+# 通知房间：申请了 notify 的插件把通知交给核心，核心以核心账号发进和主人的“Wonton”私聊（ADR-0016）。
+#       探针以主人身份读这个房间：probes_owner_room_wait <超时秒> <要找的文字> 等到开始之后发来的、包含这段文字的
+#       消息就返回 0，超时列出看到的最新消息并返回非 0。要先把等待挂到后台再发通知，否则消息可能在等待开始前就到：
+#         room_wait() {
+#           local marker="probe-$RANDOM" url
+#           url="$(docker exec "wonton-$SMOKE_INSTANCE--${SMOKE_PLUGIN_ID//./-}--web" printenv WONTON_NOTIFY_URL)"
+#           probes_owner_room_wait 120 "$marker" & local pid=$!
+#           docker exec "wonton-$SMOKE_INSTANCE--${SMOKE_PLUGIN_ID//./-}--web" wget -q -O /dev/null \
+#             --header 'Content-Type: application/json' --post-data "{\"title\":\"$marker\"}" "$url"
+#           wait "$pid"
+#         }
+#       上面的 web 换成插件里能发 HTTP 的服务；wget 换成那个服务里有的客户端。
 # 数据：合并前要验证“升级/重装不丢用户数据”时写 data_write 和 data_check（两个都写才跑）：data_write 用随机标记写
 #       一条数据并把标记原样存进 $SMOKE_STATE，data_check 读回标记去应用里找，对不上就打印看到了什么并返回非 0。
 #       应用不存用户数据时写 DATA_NA=1（两项记 N/A）。
