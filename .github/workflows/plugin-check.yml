@@ -8,11 +8,21 @@ on:
         required: false
         type: string
         default: ''
+      upgrade-from:
+        description: 冒烟“升级保数据”的起点（提交或 tag）；留空取最近的 tag
+        required: false
+        type: string
+        default: ''
   # 手动入口：从“检查”工作流（check.yml）触发，或在模板仓库直接跑本工作流验证冒烟作业。
   workflow_dispatch:
     inputs:
       core-image:
         description: 核心镜像（留空使用 scripts/lib.sh 的默认值）
+        required: false
+        type: string
+        default: ''
+      upgrade-from:
+        description: 冒烟“升级保数据”的起点（提交或 tag）；留空取最近的 tag
         required: false
         type: string
         default: ''
@@ -106,7 +116,15 @@ jobs:
       - name: 端到端冒烟（装得上、网页打得开、用户身份能用、工具 Bot 调得到）
         env:
           WONTON_CORE_IMAGE: ${{ inputs.core-image }}
-        run: scripts/dev.sh smoke
+          UPGRADE_FROM: ${{ inputs.upgrade-from }}
+        # 指定起点时在 runner 本地打一个 tag 交给 smoke，不推到仓库：公开仓库里的 tag 会和以后正式发版的版本号撞上。
+        run: |
+          if [[ -n "$UPGRADE_FROM" ]]; then
+            git tag -f smoke-upgrade-base "$UPGRADE_FROM"
+            scripts/dev.sh smoke --upgrade-from smoke-upgrade-base
+          else
+            scripts/dev.sh smoke
+          fi
       # 拉镜像、健康检查、探测这些失败原因只在 .wonton/smoke.log 里，不打出来就没法分诊。
       # 令牌和会话 cookie 按约定只进 .env 和 cookie 文件，不进日志；这里仍按键名掩掉
       # credential 形态的值，防止哪个探测把带令牌的地址或响应原样打进来（sha256 摘要不受影响）。
