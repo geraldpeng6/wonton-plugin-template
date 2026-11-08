@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       core-image:
-        description: 核心镜像（如 ghcr.io/geraldpeng6/wonton-core:sha-<提交>，钉在某次合并上复测；留空用套件默认的 :main）
+        description: 核心镜像（如 ghcr.io/geraldpeng6/wonton-core:sha-<完整 40 位提交号>，钉在某次合并上复测；留空用套件默认的 :main）
         required: false
         type: string
         default: ''
