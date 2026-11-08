@@ -109,6 +109,8 @@ probes_env() { # 实例起来以后调用；读不到用户令牌时返回 1
 }
 
 # 公共助手，给探针用：dweb / web_get 带用户的会话，mcp 走同一套 dev.sh 入口，smoke_api 带用户令牌调核心。
+# SMOKE_WEB_URL 是网页入口（probes_web_url 已去尾斜杠，但可能带路径，如 SSO 登录页），web_get 把路径直接接在它后面；
+# 探针拼应用的 API 路径用 SMOKE_WEB_ORIGIN（只有 scheme://host:port，入口的路径不掺进来）。
 dweb() { probes_dev web --jar "$SMOKE_JAR" "$@"; }
 web_get() { local path="$1"; shift; curl -sS --noproxy '*' --fail-with-body -b "$SMOKE_JAR" "$@" "$SMOKE_WEB_URL$path"; }
 mcp() {
@@ -123,11 +125,20 @@ smoke_api() {
   curl -sS --noproxy '*' --fail-with-body -X "$method" -H "Authorization: Bearer $SMOKE_TOKEN" "$@" "$SMOKE_BASE$path"
 }
 
-probes_web_url() { # 从核心的插件列表拿网页地址；拿不到时给列出的项标 FAIL，返回 1（后面的探针别跑了）
-  local plugins_json item
+probes_web_url() { # 从核心的插件列表拿网页地址，备好 SMOKE_WEB_URL 和 SMOKE_WEB_ORIGIN（见 smoke-probes.sh 顶部说明）；
+                   # 拿不到时给列出的项标 FAIL，返回 1（后面的探针别跑了）
+  local plugins_json item scheme host
   if plugins_json="$(smoke_api GET /_wonton/api/plugins)"; then
     SMOKE_WEB_URL="$(jq -rn --arg id "$SMOKE_PLUGIN_ID" --arg json "$plugins_json" '$json | fromjson | .plugins[] | select(.id==$id) | .web_url // ""')"
-    export SMOKE_WEB_URL
+    SMOKE_WEB_URL="${SMOKE_WEB_URL%/}"
+    scheme="${SMOKE_WEB_URL%%://*}"
+    if [[ -n "$SMOKE_WEB_URL" && "$scheme" != "$SMOKE_WEB_URL" ]]; then
+      host="${SMOKE_WEB_URL#"$scheme"://}"
+      SMOKE_WEB_ORIGIN="$scheme://${host%%[/?#]*}"
+    else
+      SMOKE_WEB_ORIGIN=""
+    fi
+    export SMOKE_WEB_URL SMOKE_WEB_ORIGIN
     return 0
   fi
   for item in "$@"; do fail "$item" "列不出插件"; done
