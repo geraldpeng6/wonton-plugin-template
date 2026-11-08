@@ -76,7 +76,10 @@ jobs:
     timeout-minutes: 60
     steps:
       # 可复用工作流检出的是调用方的插件仓库，不是套件仓库。
+      # 要全量历史和 tag：smoke 用 git describe 找上一个发布 tag 测“升级保数据”，浅检出没有 tag，这一项会一直是 N/A。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       # 出口代理：声明 network.egress 的插件经核心的出口容器出网（ADR-0023），出口容器把流量转发到
       # 这里起的转发代理；装时要出网的插件（如 openclaw 的 init 装 npm 包）没有它就装不上。
       # 镜像和核心出口容器是同一个（gogost/gost，MIT，按摘要固定）。端口只绑 Docker 网桥的网关地址，
