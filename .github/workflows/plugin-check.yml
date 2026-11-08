@@ -10,6 +10,12 @@ on:
         default: ''
   # 手动入口：从“检查”工作流（check.yml）触发，或在模板仓库直接跑本工作流验证冒烟作业。
   workflow_dispatch:
+    inputs:
+      core-image:
+        description: 核心镜像（留空使用 scripts/lib.sh 的默认值）
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
