@@ -127,7 +127,7 @@ smoke_api() {
   curl -sS --noproxy '*' --fail-with-body -X "$method" -H "Authorization: Bearer $SMOKE_TOKEN" "$@" "$SMOKE_BASE$path"
 }
 
-# 通知房间（ADR-0016）：核心以核心账号发进和主人的“Wonton”私聊。开发环境里主人不在宿主机上登录 Matrix，
+# 通知房间：核心以核心账号发进和主人的“Wonton”私聊。开发环境里主人不在宿主机上登录 Matrix，
 # 这里用 Tuwunel 的管理接口临时登录主人拿一个令牌，探针结束后退出登录。Tuwunel 只在核心网络上，请求在核心
 # 容器里用 bash 的 /dev/tcp 发出：核心镜像没有 curl，也不为此拉镜像。令牌只走环境变量，不进日志。
 probes_matrix() { # <方法> <路径> [JSON 正文]：响应正文到标准输出
