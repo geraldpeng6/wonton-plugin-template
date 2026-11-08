@@ -25,7 +25,7 @@ identity_check() { # 页面回显的就是网关注入的用户名
 }
 
 # 数据：合并前要验证“升级/重装不丢用户数据”时写 data_write 和 data_check（两个都写才跑）：
-#   data_write 用随机标记写一条数据，把标记原样存进 $SMOKE_STATE；data_check 读回标记、去应用里找，
+#   data_write 用随机标记写一条数据，把标记原样覆盖写进 $SMOKE_STATE（一个已建好的空文件，不是目录）；data_check 读回标记、去应用里找，
 #   找不到就打印看到了什么并返回非 0。
 # 应用不存用户数据时写 DATA_NA=1（两项记 N/A）。模板的示例页不存数据，所以这里是不适用。
 export DATA_NA=1
