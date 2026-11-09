@@ -200,14 +200,13 @@ token() {
 }
 
 # 调核心的管理接口。*.localhost 由 curl 自己解析到本机，不经代理。常在 $(…) 里调用，bash 在那里不带 set -e，
-# 所以读不到令牌时要自己退出。
+# 所以读不到令牌时要自己退出。接口 600 秒（SMOKE_API_MAX_TIME），核心不回时调用方不跟着挂死。
 api() {
   local method="$1" path="$2" owner
   shift 2
   owner="$(token)" || exit 1
-  curl -sS --noproxy '*' --fail-with-body -X "$method" \
-    -H "Authorization: Bearer $owner" -H "Accept-Language: zh-CN,zh;q=0.9" \
-    "$@" "$base_url$path"
+  curl_t "$SMOKE_API_MAX_TIME" "$base_url$path" --noproxy '*' -X "$method" \
+    -H "Authorization: Bearer $owner" -H "Accept-Language: zh-CN,zh;q=0.9" "$@"
 }
 
 api_command() {
@@ -430,17 +429,17 @@ sso_form_login() {
   for _ in $(seq 1 8); do
     page_file="$(mktemp)"
     if [[ "$method" == GET ]]; then
-      effective="$(curl -sS --noproxy '*' --fail-with-body -L -b "$jar" -c "$jar" \
-        -H 'Accept: text/html' -o "$page_file" -w '%{url_effective}' "$request_url")" || {
+      effective="$(curl_t "$SMOKE_WEB_MAX_TIME" "$request_url" --noproxy '*' -L -b "$jar" -c "$jar" \
+        -H 'Accept: text/html' -o "$page_file" -w '%{url_effective}')" || {
         rm -f "$page_file"
-        die "读取 SSO 页面失败"
+        die "读取 SSO 页面失败（$request_url）"
       }
     else
-      effective="$(curl -sS --noproxy '*' --fail-with-body -L -b "$jar" -c "$jar" \
+      effective="$(curl_t "$SMOKE_WEB_MAX_TIME" "$request_url" --noproxy '*' -L -b "$jar" -c "$jar" \
         -H 'Accept: text/html' -o "$page_file" -w '%{url_effective}' \
-        --data "$data" "$request_url")" || {
+        --data "$data")" || {
         rm -f "$page_file"
-        die "提交 SSO 表单失败"
+        die "提交 SSO 表单失败（$request_url）"
       }
     fi
     form="$(python3 - "$page_file" "$effective" <<'PY'
@@ -503,15 +502,16 @@ session_into() {
   mkdir -p "$(dirname "$jar")"
   [[ -n "$new" ]] && rm -f "$jar"
   [[ -f "$jar" ]] && return 0
-  owner="$(token)"
+  owner="$(token)" || exit 1
   entry="$(plugin_web_entry "$(plugin_id)")"
-  curl -sS --noproxy '*' --fail-with-body -o /dev/null -c "$jar" --data-urlencode "token=$owner" \
-    "$base_url/_wonton/login" || die "用户令牌登录不了核心"
+  curl_t "$SMOKE_WEB_MAX_TIME" "$base_url/_wonton/login" --noproxy '*' -o /dev/null -c "$jar" \
+    --data-urlencode "token=$owner" ||
+    die "用户令牌登录不了核心（POST $base_url/_wonton/login）"
   if [[ -n "$sso" ]]; then
     sso_form_login "$jar" "$entry"
   else
-    curl -sS --noproxy '*' -o /dev/null -L -b "$jar" -c "$jar" -H 'Accept: text/html' "$entry" ||
-      die "走不通插件网页的登录跳转"
+    curl_t "$SMOKE_WEB_MAX_TIME" "$entry" --noproxy '*' -o /dev/null -L -b "$jar" -c "$jar" -H 'Accept: text/html' ||
+      die "走不通插件网页的登录跳转（GET $entry）"
   fi
 }
 
@@ -527,7 +527,7 @@ session() {
   session_jar
 }
 
-# 带用户会话请求插件网页，其余参数原样交给 curl。`--sso` 会跟完应用登录页的隐藏字段表单。
+# 带用户会话请求插件网页，其余参数原样交给 curl（网页 120 秒，SMOKE_WEB_MAX_TIME）。`--sso` 会跟完应用登录页的隐藏字段表单。
 web() {
   local path="/" jar fresh="" sso="" url
   jar="$(session_jar)"
@@ -544,7 +544,7 @@ web() {
   [[ "$path" == /* ]] || usage
   session_into "$jar" "$fresh" "$sso"
   url="$(plugin_web_url "$(plugin_id)")"
-  curl -sS --noproxy '*' --fail-with-body -b "$jar" -c "$jar" "$@" "$url$path"
+  curl_t "$SMOKE_WEB_MAX_TIME" "$url$path" --noproxy '*' -b "$jar" -c "$jar" "$@"
 }
 
 if [[ "${1:-}" != kit-update ]]; then
