@@ -37,6 +37,15 @@ probes_setting() { # 状态目录 .env 里的一项设置
   sed -n "s/^$1=//p" "$SMOKE_DEV_STATE/.env" | tail -1
 }
 
+# 核心的基础域名，不是实例名：别的栈写 WONTON_BASE_DOMAIN，从主仓库抄成 WONTON_DEV_DOMAIN 的也认；都没写时按
+# 实例名兜底。
+probes_domain() {
+  local domain
+  domain="$(probes_setting WONTON_BASE_DOMAIN)"
+  [[ -n "$domain" ]] || domain="$(probes_setting WONTON_DEV_DOMAIN)"
+  printf '%s\n' "${domain:-$SMOKE_INSTANCE.wonton.localhost}"
+}
+
 # 插件钩子限时跑：函数开在子 shell 里（能看见调用方的函数和变量），超时就杀掉。
 probes_hook() { # <函数名> [秒数]
   local fn="$1" secs="${2:-300}" pid i
@@ -85,7 +94,7 @@ probes_load() { # 读插件的探针；探针里可用的变量和助手在 prob
   MCP_TOOL=""
   MCP_ARGS='{}'
   SMOKE_NOTE=""
-  export WONTON_OWNER_EMAIL="${WONTON_OWNER_EMAIL:-owner@$SMOKE_INSTANCE.wonton.localhost}"
+  export WONTON_OWNER_EMAIL="${WONTON_OWNER_EMAIL:-owner@$(probes_domain)}"
   if [[ -f "$SMOKE_DIR/scripts/smoke-probes.sh" ]]; then
     # shellcheck source=scripts/smoke-probes.sh
     . "$SMOKE_DIR/scripts/smoke-probes.sh"
@@ -97,7 +106,7 @@ probes_load() { # 读插件的探针；探针里可用的变量和助手在 prob
 probes_env() { # 实例起来以后调用；读不到用户令牌时返回 1
   local port
   port="$(probes_setting WONTON_PORT)"
-  SMOKE_BASE="http://$SMOKE_INSTANCE.wonton.localhost:$port"
+  SMOKE_BASE="http://$(probes_domain):$port"
   SMOKE_TOKEN="$(probes_dev token)" || return 1
   SMOKE_OWNER="$(docker exec "wonton-$SMOKE_INSTANCE--core" cat "$(probes_setting WONTON_DATA_DIR)/core/owner.json" 2>/dev/null | jq -r '.username // empty')"
   SMOKE_OWNER="${SMOKE_OWNER:-owner}"

@@ -18,6 +18,14 @@
 
 从模板创建自己的插件后，替换示例清单、网页和素材；具体步骤见[写插件](https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md#写插件)。
 
+## 对着别的栈跑探针
+
+`probes`、`api`、`session` 按 `.wonton/.env` 的 `WONTON_BASE_DOMAIN` 拼核心地址，`up` 起的栈自己写这个键。插件装进别人的栈、或者对着已有环境排查时，把那套栈的基础域名写进 `.wonton/.env`，不要只按实例名猜地址：实例名只是资源名前缀，网关按 Host 认域名，拼错了会回“没有安装”。
+
+```bash
+WONTON_BASE_DOMAIN=wonton.localhost
+```
+
 ## 更新开发套件
 
 ```bash
