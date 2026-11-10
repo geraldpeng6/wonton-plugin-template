@@ -58,6 +58,8 @@ jobs:
           sys.exit(1 if failed else 0)
       - name: ShellCheck
         run: shellcheck scripts/*.sh
+      - name: dev.sh 的 logs 和 diag（假 docker，不用真的 Docker）
+        run: scripts/dev_test.sh
       # 插件仓库是公开的，核心的设计记录（ADR）在私有仓库里，读者打不开：注释、README、NOTICE 里写编号只会留下死链，
       # 要讲的道理直接写在原处。
       - name: 不引用 ADR 编号
