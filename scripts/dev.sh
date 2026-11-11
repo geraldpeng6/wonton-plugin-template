@@ -624,17 +624,43 @@ mcp() {
 }
 
 approve_pending() {
-  local list cards id title reply failed=0
+  local list cards id title reason body reply failed=0
   list="$(api GET /_wonton/api/confirmations)" || die "取不到等回答的卡片：$(error_text "$list")"
+  # 每行四段：id、标题、拒批原因（能批时是 -）、回答体（拒批时是 -）。段都不会是空的，空段会被 read 并掉。
   cards="$(python3 - "$list" <<'PY'
 import json, sys
+
+# 权限确认卡（ACP session/request_permission 转来的）每个选项都带 choice_id，核心按
+# answer + choice_id 匹配卡片上的按钮，只发 answer 会被 400 invalid_input 拒掉：从卡片
+# 挑第一个「允许」类选项，把它自己的 answer 和 choice_id 原样发回去。核心认 approve、
+# approve_wider、allow_window 三种 answer 为同意（答别的等同拒绝）。
+ALLOW = {"approve", "approve_wider", "allow_window"}
 for card in json.loads(sys.argv[1])["confirmations"]:
-    print(card["id"], card["title"].replace("\t", " ").replace("\n", " "), sep="\t")
+    choices = card.get("choices", [])
+    chosen = next(
+        (c for c in choices if c.get("choice_id") and c.get("answer") in ALLOW), None
+    )
+    if chosen is not None:
+        reason, body = "-", json.dumps(
+            {"answer": chosen["answer"], "choice_id": chosen["choice_id"]}
+        )
+    elif not any(c.get("choice_id") for c in choices):
+        # 没有带 choice_id 选项的普通卡片：只发 answer 就行。
+        reason, body = "-", '{"answer":"approve"}'
+    else:
+        reason, body = "卡片上没有允许类的选项，不能代批", "-"
+    title = card["title"].replace("\t", " ").replace("\n", " ")
+    print(card["id"], title, reason, body, sep="\t")
 PY
   )" || die "看不懂核心回的确认卡片：$list"
   [[ -n "$cards" ]] || return 3
-  while IFS=$'\t' read -r id title; do
-    if reply="$(api POST "/_wonton/confirmations/$id" -H 'Content-Type: application/json' -d '{"answer":"approve"}')"; then
+  while IFS=$'\t' read -r id title reason body; do
+    if [[ "$reason" != "-" ]]; then
+      echo "没批准：$title：$reason" >&2
+      failed=1
+      continue
+    fi
+    if reply="$(api POST "/_wonton/confirmations/$id" -H 'Content-Type: application/json' -d "$body")"; then
       echo "已批准：$title"
     else
       echo "没批准：$title：$(error_text "$reply")" >&2

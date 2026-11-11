@@ -52,11 +52,57 @@ esac
 DOCKER
 chmod +x "$bin/docker"
 
-# 假 curl：给 diag 读的出口代理设置。FAKE_API=fail 时像接口出错一样退出。
+# 假 curl：按方法+路径回话。GET 卡片列表回 FAKE_CARDS；POST 回答按核心的匹配规则校验
+# （answer + choice_id 得是那张卡片上真有的按钮，不是就 400）。FAKE_API=fail 时像接口出错
+# 一样退出；FAKE_ANSWER_FAIL=<卡片 id> 让那张卡的 POST 像被核心拒掉一样回 409。
 cat >"$bin/curl" <<'CURL'
 #!/usr/bin/env bash
+url="${*: -1}"
+method=GET
+body=""
+args=("${@:1:$#-1}")
+i=0
+while ((i < ${#args[@]})); do
+  case "${args[$i]}" in
+    -X) method="${args[$((i + 1))]}"; i=$((i + 2)) ;;
+    -d) body="${args[$((i + 1))]}"; i=$((i + 2)) ;;
+    *) i=$((i + 1)) ;;
+  esac
+done
 [[ "${FAKE_API:-ok}" == ok ]] || exit 22
-printf '%s\n' "$FAKE_SETTINGS"
+case "$url" in
+  */_wonton/api/confirmations)
+    printf '%s\n' "$FAKE_CARDS"
+    ;;
+  */_wonton/confirmations/*)
+    python3 - "$url" "$method" "$body" <<'PY'
+import json, os, sys
+
+url, method, body = sys.argv[1], sys.argv[2], sys.argv[3]
+cards = json.loads(os.environ.get("FAKE_CARDS", '{"confirmations":[]}'))["confirmations"]
+card = next((c for c in cards if c.get("id") == url.rstrip("/").rsplit("/", 1)[-1]), None)
+if card is None:
+    print(json.dumps({"error": {"kind": "not_found", "message": "没有这张卡片"}}))
+    sys.exit(22)
+if card["id"] == os.environ.get("FAKE_ANSWER_FAIL"):
+    print(json.dumps({"error": {"kind": "already_answered", "message": "这张卡片已经回答过了"}}))
+    sys.exit(22)
+sent = json.loads(body)
+# 学核心 answer_with_secrets 的匹配：发来的 answer + choice_id 必须是卡片上真有的按钮。
+if any(
+    c.get("answer") == sent.get("answer") and c.get("choice_id") == sent.get("choice_id")
+    for c in card.get("choices", [])
+):
+    print(json.dumps({"state": {"type": "running"}}))
+else:
+    print(json.dumps({"error": {"kind": "invalid_input", "message": "卡片上没有这个按钮"}}))
+    sys.exit(22)
+PY
+    ;;
+  *)
+    printf '%s\n' "$FAKE_SETTINGS"
+    ;;
+esac
 CURL
 chmod +x "$bin/curl"
 
@@ -127,6 +173,31 @@ run 1 FAKE_API=fail -- diag || true
 has "$out" "当前代理设置" "要查当前设置"
 has "$out" "读不到设置" "读不到设置要写原因"
 has "$out" "http_proxy=" "接口失败后后面的项照样跑"
+
+# approve：权限卡（ACP session/request_permission 转来的，选项带 choice_id）要把允许选项的
+# answer 和 choice_id 一起发，只发 answer 核心回 400；普通卡照旧只发 answer。
+cards='{"confirmations":[{"id":"perm-1","state":{"type":"pending"},"title":"dsh 想跑命令","choices":[{"answer":"approve","label":"允许一次","choice_id":"acp-0"},{"answer":"reject","label":"拒绝","choice_id":"acp-2"}]},{"id":"plain-1","state":{"type":"pending"},"title":"Hermes 想装插件","choices":[{"answer":"approve","label":"允许"}]}]}'
+run 0 "FAKE_CARDS=$cards" -- approve || true
+has "$out" "已批准：dsh 想跑命令" "权限卡带 choice_id 批准"
+has "$out" "已批准：Hermes 想装插件" "普通卡只发 answer"
+
+# 只有拒绝类选项的卡代批不了：如实写原因，退出码 1。
+rejonly='{"confirmations":[{"id":"rej-1","state":{"type":"pending"},"title":"dsh 想发网页","choices":[{"answer":"reject","label":"拒绝","choice_id":"acp-0"}]}]}'
+run 1 "FAKE_CARDS=$rejonly" -- approve || true
+has "$err" "没批准：dsh 想发网页：卡片上没有允许类的选项" "只有拒绝选项要写原因"
+
+# 核心拒掉其中一张：报核心给的原因，别的卡片照批。
+run 1 "FAKE_CARDS=$cards" "FAKE_ANSWER_FAIL=perm-1" -- approve || true
+has "$err" "没批准：dsh 想跑命令：这张卡片已经回答过了" "核心拒批要报核心的原因"
+has "$out" "已批准：Hermes 想装插件" "一张失败不影响下一张"
+
+# 列表接口挂了：报错退出。
+run 1 FAKE_API=fail -- approve || true
+has "$err" "取不到等回答的卡片" "取不到卡片要报错"
+
+# 没有等回答的卡片：说明，不算失败。
+run 0 'FAKE_CARDS={"confirmations":[]}' -- approve || true
+has "$out" "没有等回答的卡片" "没有卡片时说明"
 
 if ((failed > 0)); then
   echo "$failed 处失败" >&2
