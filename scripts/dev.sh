@@ -28,7 +28,7 @@
 #   scripts/dev.sh purge [--yes]              删掉整个开发环境；非交互执行必须带 --yes
 #   scripts/dev.sh kit-update [<ref>]          更新开发套件（默认 main），不需要 Docker
 #
-# 第一次 up 时可以用环境变量定下：WONTON_CORE_IMAGE（核心镜像，默认 ghcr.io/geraldpeng6/wonton-core:main）、
+# 第一次 up 时可以用环境变量定下：WONTON_CORE_IMAGE（核心镜像，默认 ghcr.io/wontonapp/wonton-core:main）、
 # WONTON_INSTANCE（实例名）、WONTON_PORT（网页端口，隧道用下一个端口）、WONTON_DEV_DOMAIN（基础域名，默认
 # <实例名>.wonton.localhost）、WONTON_PULL=never（用本机构建的核心镜像，不拉取）。之后改 .wonton/.env 再 up。
 # 对着别的栈跑 probes、api、session 时，在 .wonton/.env 写那套栈的 WONTON_BASE_DOMAIN：实例名只是资源名前缀，
