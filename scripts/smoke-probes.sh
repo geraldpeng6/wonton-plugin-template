@@ -46,4 +46,16 @@ identity_check() { # 页面回显的就是网关注入的用户名；示例页�
 #   data_write 用随机标记写一条数据，把标记原样覆盖写进 $SMOKE_STATE（一个已建好的空文件，不是目录）；data_check 读回标记、去应用里找，
 #   找不到就打印看到了什么并返回非 0。
 # 应用不存用户数据时写 DATA_NA=1（两项记 N/A）。模板的示例页不存数据，所以这里是不适用。
+# 数据要写进插件容器时（Agent 插件的工作区标记等），容器名别自己拼：钩子契约里没有 SMOKE_SLUG，e2e 套件的
+# data_write 又跑在实例名导出之前，拼出来的名字缺段（No such container）；Bot 服务（清单声明了 bots）每个 Bot
+# 一组容器，名字还带 --<Bot 名> 后缀。按核心打的标签找，插件自带 smoke 和 e2e 套件两个运行环境都成立
+# （实例名没导出时按 SMOKE_BASE 的主机名第一段推）：
+#   _container() { # <插件 id> <服务名>：本实例里这个服务的容器
+#     local inst="${SMOKE_INSTANCE:-}" args=(--filter "label=wonton.plugin=$1" --filter "label=wonton.service=$2")
+#     if [[ -z "$inst" && -n "${SMOKE_BASE:-}" ]]; then
+#       inst="${SMOKE_BASE#http://}"; inst="${inst%%.*}"
+#     fi
+#     [[ -z "$inst" ]] || args+=(--filter "label=wonton.instance=${inst//-/}")
+#     docker ps --format '{{.Names}}' "${args[@]}" | head -1
+#   }
 export DATA_NA=1
