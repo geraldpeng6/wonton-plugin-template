@@ -26,6 +26,10 @@
 WONTON_BASE_DOMAIN=wonton.localhost
 ```
 
+## 核心镜像
+
+检查和冒烟默认用套件里的核心镜像（`ghcr.io/wontonapp/wonton-core:main`）；要固定别的核心镜像，在仓库 Settings → Variables 设 `WONTON_CORE_IMAGE`，手动触发“检查”时填的 `core-image` 输入优先。
+
 ## 更新开发套件
 
 ```bash
