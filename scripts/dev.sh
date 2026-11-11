@@ -28,7 +28,7 @@
 #   scripts/dev.sh purge [--yes]              删掉整个开发环境；非交互执行必须带 --yes
 #   scripts/dev.sh kit-update [<ref>]          更新开发套件（默认 main），不需要 Docker
 #
-# 第一次 up 时可以用环境变量定下：WONTON_CORE_IMAGE（核心镜像，默认 ghcr.io/geraldpeng6/wonton-core:main）、
+# 第一次 up 时可以用环境变量定下：WONTON_CORE_IMAGE（核心镜像，默认 ghcr.io/wontonapp/wonton-core:main）、
 # WONTON_INSTANCE（实例名）、WONTON_PORT（网页端口，隧道用下一个端口）、WONTON_DEV_DOMAIN（基础域名，默认
 # <实例名>.wonton.localhost）、WONTON_PULL=never（用本机构建的核心镜像，不拉取）。之后改 .wonton/.env 再 up。
 # 对着别的栈跑 probes、api、session 时，在 .wonton/.env 写那套栈的 WONTON_BASE_DOMAIN：实例名只是资源名前缀，
@@ -187,7 +187,10 @@ up() {
   check_core_image "$image"
   write_settings
   info "生成密钥和配置（已有的沿用）"
-  docker run --rm --user "$(id -u):$(id -g)" -v "$state:$state" "$image" init "$state" "$domain" >/dev/null
+  # 核心 4cdfe16 起 init 要求身份三选一：WONTON_MATRIX_SERVER_NAME、家名服务（WONTON_CLIENT_SERVICE+邀请码）
+  # 或 WONTON_MATRIX_NAME_MODE=none。开发栈不注册公共名字：none 生成随机的 <随机>.wonton.internal，只与同类
+  # 已配对云吞互通，开发冒烟够用；老核心没有这个开关，多传的变量被忽略。要公共名字走正式安装（install.sh）。
+  docker run --rm --user "$(id -u):$(id -g)" -e WONTON_MATRIX_NAME_MODE=none -v "$state:$state" "$image" init "$state" "$domain" >/dev/null
   info "启动核心、身份提供方和 Matrix 服务器（第一次要拉镜像，几分钟）"
   compose up -d --wait --wait-timeout 600 || die "没有在 10 分钟内就绪，看看日志：scripts/dev.sh logs"
   need_env
