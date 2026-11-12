@@ -3,12 +3,13 @@
 # 把这个仓库的插件装进去。设置、密钥和数据都在 .wonton/ 里，不装进系统，不要 root。
 #
 #   scripts/dev.sh up                         起开发环境，等到都健康；再执行一次就是拉最新的核心镜像重启
-#   scripts/dev.sh install [--yes] [--setting <名字>=<值>]… [<引用>]
+#   scripts/dev.sh install [--yes] [--setting <名字>=<值>]… [--secret <名字>=<值>]… [<引用>]
 #                                             预览后安装插件：默认装工作区里的，给了 git 引用（tag、分支、提交）就装那个版本；
-#                                             --setting 填插件设置（清单 x-wonton.settings 的 Schema），可以给多次
-#   scripts/dev.sh reinstall [--yes] [--setting <名字>=<值>]…
+#                                             --setting 填插件设置（清单 x-wonton.settings 的 Schema），
+#                                             --secret 填用户填写的密钥（清单 x-wonton.secrets 的 input），都可以给多次
+#   scripts/dev.sh reinstall [--yes] [--setting <名字>=<值>]… [--secret <名字>=<值>]…
 #                                             卸载（保留数据）再装上工作区里的：改了插件包以后用；装着时的设置值带过去
-#   scripts/dev.sh upgrade [--yes] [--setting <名字>=<值>]… [<引用>]
+#   scripts/dev.sh upgrade [--yes] [--setting <名字>=<值>]… [--secret <名字>=<值>]… [<引用>]
 #                                             升级已装的插件：换容器不吊销 Bot 的设备，数据、密钥和设置都留着
 #   scripts/dev.sh rebuild                    强制重建核心栈，再保数据重装工作区插件；其他插件容器不重建
 #   scripts/dev.sh uninstall [--purge]        卸载；--purge 连插件的数据一起删
@@ -338,23 +339,56 @@ settings_check() { # <插件 id>
     die "核心没存下给的设置值：核心镜像可能太旧，不认识 Wonton-Plugin-Settings 请求头（scripts/dev.sh up 换最新的）"
 }
 
-# 解析 install、upgrade 共用的参数：--yes、--setting（进数组 setting_pairs）和一个可选的 git 引用。
+# 解析 install、upgrade 共用的参数：--yes、--setting（进数组 setting_pairs）、--secret（进数组 secret_pairs）
+# 和一个可选的 git 引用。
 install_args() {
   yes="" ref=""
   setting_pairs=()
+  secret_pairs=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --yes) yes=1; shift ;;
       --setting) [[ $# -ge 2 && "$2" == ?*=* ]] || usage; setting_pairs+=("$2"); shift 2 ;;
+      --secret) [[ $# -ge 2 && "$2" == ?*=* ]] || usage; secret_pairs+=("$2"); shift 2 ;;
       -*) usage ;;
       *) [[ -z "$ref" ]] || usage; ref="$1"; shift ;;
     esac
   done
 }
 
+# 用户填写的插件密钥的上传请求头（base64url 无填充的 JSON 对象），追加到数组 secret_header；没给 --secret 时不加。
+secrets_for() {
+  local value
+  secret_header=()
+  ((${#secret_pairs[@]})) || return 0
+  value="$(python3 - "${secret_pairs[@]}" <<'EOP'
+import base64, json, sys
+pairs = dict(item.split("=", 1) for item in sys.argv[1:])
+print(base64.urlsafe_b64encode(json.dumps(pairs).encode()).decode().rstrip("="))
+EOP
+)" || exit 1
+  secret_header=(-H "Wonton-Plugin-Secrets: $value")
+}
+
+# 装完核对给的密钥都存下了：核心不认识这个请求头时会照装、不带值，不能当成功。
+secrets_check() { # <插件 id>
+  local id="$1" detail
+  ((${#secret_header[@]})) || return 0
+  detail="$(api GET "/_wonton/api/plugins/$id")" || die "读不到插件详情，核不了密钥：$(error_text "$detail")"
+  python3 - "$detail" "${secret_pairs[@]}" <<'EOP' || die "核心没存下给的密钥：核心镜像可能太旧，不认识 Wonton-Plugin-Secrets 请求头（scripts/dev.sh up 换最新的）"
+import json, sys
+missing = {line["name"] for line in json.loads(sys.argv[1])["secret_inputs"] if not line["filled"]}
+given = {item.split("=", 1)[0] for item in sys.argv[2:]}
+bad = sorted(given & missing)
+if bad:
+    print("没存下：" + "、".join(bad), file=sys.stderr)
+    raise SystemExit(1)
+EOP
+}
+
 install_plugin() {
-  local yes ref dir="$plugin" preview grants result answer
-  local -a setting_pairs setting_header old=() base=()
+  local yes ref id dir="$plugin" preview grants result answer
+  local -a setting_pairs secret_pairs setting_header secret_header old=() base=()
   install_args "$@"
   need_env
   need_plugin
@@ -377,13 +411,16 @@ install_plugin() {
     base=(--base "$tmp/base.json")
   fi
   settings_for "$preview" "${base[@]}" "${old[@]}" "${setting_pairs[@]}"
+  secrets_for
   if [[ -z "$yes" ]]; then
     read -r -p "确认安装？[y/N] " answer
     [[ "$answer" == [yY] ]] || die "没装"
   fi
   result="$(api POST "/_wonton/api/plugins?grant=$grants" -H 'Content-Type: application/x-tar' "${setting_header[@]}" \
-    --data-binary @"$tmp/package.tar")" || die "安装失败：$(error_text "$result")"
-  settings_check "$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$result")"
+    "${secret_header[@]}" --data-binary @"$tmp/package.tar")" || die "安装失败：$(error_text "$result")"
+  id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$result")"
+  settings_check "$id"
+  secrets_check "$id"
   python3 - "$result" <<'PY'
 import json, sys
 p = json.loads(sys.argv[1])
@@ -412,6 +449,7 @@ reinstall() {
     case "$1" in
       --yes) passed+=(--yes); shift ;;
       --setting) [[ $# -ge 2 && "$2" == ?*=* ]] || usage; passed+=(--setting "$2"); shift 2 ;;
+      --secret) [[ $# -ge 2 && "$2" == ?*=* ]] || usage; passed+=(--secret "$2"); shift 2 ;;
       *) usage ;;
     esac
   done
@@ -434,7 +472,7 @@ reinstall() {
 # Bot 就读不到旧房间的加密历史了）。
 upgrade() {
   local yes ref dir="$plugin" id preview grants result answer
-  local -a setting_pairs setting_header
+  local -a setting_pairs secret_pairs setting_header secret_header
   install_args "$@"
   need_env
   need_plugin
@@ -453,13 +491,15 @@ upgrade() {
   grants="$(show_preview "$preview")" || exit 1
   # 升级只带改动的项：没给的设置核心沿用装着的值。
   settings_for "$preview" "${setting_pairs[@]}"
+  secrets_for
   if [[ -z "$yes" ]]; then
     read -r -p "确认升级？[y/N] " answer
     [[ "$answer" == [yY] ]] || die "没升"
   fi
   result="$(api POST "/_wonton/api/plugins/$id/upgrade?grant=$grants" -H 'Content-Type: application/x-tar' "${setting_header[@]}" \
-    --data-binary @"$tmp/package.tar")" || die "升级失败：$(error_text "$result")"
+    "${secret_header[@]}" --data-binary @"$tmp/package.tar")" || die "升级失败：$(error_text "$result")"
   settings_check "$id"
+  secrets_check "$id"
   python3 - "$result" <<'PY'
 import json, sys
 p = json.loads(sys.argv[1])["plugin"]
