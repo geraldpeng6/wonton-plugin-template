@@ -147,3 +147,28 @@ PY
   printf '%s\n' "$stripped" >"$target/config.json"
   export DOCKER_CONFIG="$target"
 }
+
+# 换掉 Compose 文件里某个服务的 image 行：<文件> <服务名> <镜像>。只认 services 下一层的服务键和它下面直写的 image，
+# 找不到时返回 1、文件不动；换完是否生效由调用方用 docker compose config 核对。
+replace_service_image() {
+  local file="$1" service="$2" image="$3" tmp
+  tmp="$(mktemp "$file.XXXXXX")" || return 1
+  if awk -v svc="$service" -v img="$image" '
+    function indent(line) { match(line, /^ */); return RLENGTH }
+    /^services:[[:space:]]*$/ { in_services = 1; print; next }
+    in_services && /^[^ #]/ { in_services = 0; in_svc = 0 }
+    in_services && /^ +[^ #][^:]*:[[:space:]]*$/ && (child == 0 || indent($0) == child) {
+      child = indent($0); name = $1; sub(/:$/, "", name); gsub(/["\047]/, "", name)
+      in_svc = (name == svc); print; next
+    }
+    in_svc && !done && /^ +image:/ && indent($0) > child {
+      match($0, /^ +/); $0 = substr($0, 1, RLENGTH) "image: " img; done = 1
+    }
+    { print }
+    END { exit !done }' "$file" >"$tmp"; then
+    mv "$tmp" "$file"
+  else
+    rm -f "$tmp"
+    return 1
+  fi
+}
