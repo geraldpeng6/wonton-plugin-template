@@ -263,8 +263,8 @@ if grep -q sk-test-only "$FAKE_ARGS_FILE" || [[ "$out$err" == *sk-test-only* ]];
 fi
 
 # Linux 上 host.docker.internal 换成模型网关插件网络的网关地址；Docker Desktop、OrbStack 上原样用。
-run 0 FAKE_GATEWAY=172.30.0.1 -- model http://host.docker.internal:3425/v1 m "$work/model.key" || true
-has "$(cat "$FAKE_BODY_FILE")" '"base_url": "http://172.30.0.1:3425/v1"' "Linux 上换成网关地址"
+run 0 FAKE_GATEWAY=198.51.100.1 -- model http://host.docker.internal:3425/v1 m "$work/model.key" || true
+has "$(cat "$FAKE_BODY_FILE")" '"base_url": "http://198.51.100.1:3425/v1"' "Linux 上换成网关地址"
 run 0 "FAKE_OS=Docker Desktop" -- model http://host.docker.internal:3425/v1 m "$work/model.key" || true
 has "$(cat "$FAKE_BODY_FILE")" '"base_url": "http://host.docker.internal:3425/v1"' "Docker Desktop 上原样用"
 run 1 -- model http://host.docker.internal:3425/v1 m "$work/model.key" || true
