@@ -109,7 +109,7 @@
 | `mcp list`、`mcp call <工具> [<JSON>]` | 经 MCP 总线列出、调用工具 |
 | `probes_owner_room_wait <秒> <文字>` | 等用户的通知房间里出现包含这段文字的新消息 |
 | `extra_item <PASS\|FAIL\|N/A> <子项> <说明>` | 只在 `extra_check` 里用：记一行附加检查的子项 |
-| `agent_check_*`、`agent_say` | Agent 插件的附加检查（加密私聊、模型回答、MCP 工具、确认卡片、打断、重启、续聊、名单外不应答、聊天登录、登录网页、登录密钥撤回），用法见 `scripts/agent-probes.sh` 开头 |
+| `agent_check_*`、`agent_say` | Agent 插件的附加检查（加密私聊、模型回答、MCP 工具、确认卡片、打断、重启、续聊、名单外不应答、聊天登录、登录网页、登录密钥撤回），用法和可调的等待（`AGENT_WAIT`、`AGENT_CARD_WAIT`、`AGENT_HEALTHY_WAIT`）见 `scripts/agent-probes.sh` 开头 |
 
 `extra_check` 默认限时 600 秒，探针里写 `EXTRA_TIMEOUT=<秒>` 可以放宽（Agent 插件一轮要发十几条消息）。
 
