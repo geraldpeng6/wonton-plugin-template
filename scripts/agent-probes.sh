@@ -253,7 +253,7 @@ agent_card_answer() {
       body="$(jq -c --arg id "$id" --arg a "$want" '[.confirmations[] | select(.id == $id) | .choices[]?
         | select(((.answer // .kind) // "") | startswith($a))][0] // {} | {answer: (.answer // $a)}
         + (if .choice_id then {choice_id} else {} end)' <<<"$list")"
-      echo "卡片 $id：回答 $body"
+      echo "卡片 $id（$(jq -r --arg i "$id" '[.confirmations[] | select(.id == $i) | .title][0] // ""' <<<"$list")）：回答 $body"
       smoke_api POST "/_wonton/confirmations/$id" -H 'Content-Type: application/json' -d "$body"
       return
     fi
@@ -284,14 +284,19 @@ agent_cards_until() { # <进程> <approve|reject> <文字>
 
 # 等的时候把冒出来的卡片先同意掉：取第一张，按它的第一个选项（通常是推荐项）回答。没有卡片时返回 1。
 agent_card_take() {
-  local list id body
+  local list id body out
   list="$(smoke_api GET /_wonton/api/confirmations 2>/dev/null)" || return 1
-  id="$(jq -r '[.confirmations[]? | .id][0] // empty' <<<"$list")"
+  # 只取有选项的卡片：提问类卡片没有选项，用 approve 答不了，会一直挂在列表里。
+  id="$(jq -r '[.confirmations[]? | select(((.choices // []) | length) > 0) | .id][0] // empty' <<<"$list")"
   [[ -n "$id" ]] || return 1
   body="$(jq -c --arg id "$id" '[.confirmations[] | select(.id == $id) | .choices[]?][0] // {}
     | {answer: (.answer // "approve")} + (if .choice_id then {choice_id} else {} end)' <<<"$list")"
   echo "等上一轮结束时同意一张卡片 $id：$body"
-  smoke_api POST "/_wonton/confirmations/$id" -H 'Content-Type: application/json' -d "$body" >/dev/null
+  if ! out="$(smoke_api POST "/_wonton/confirmations/$id" -H 'Content-Type: application/json' -d "$body" 2>&1)"; then
+    echo "卡片 $id 没答成：$(agent_tail "$out")"
+    return 1
+  fi
+  echo "卡片 $id 答完"
 }
 
 agent_owner_token() {
@@ -397,8 +402,8 @@ agent_check_card() {
   file="$(agent_tmp)"
   agent_say --reply any --wait "${AGENT_WAIT:-240}" --text "$ask_ok" >"$file" 2>&1 &
   bg=$!
-  if agent_card_answer approve card-ok >&2; then
-    agent_cards_until "$bg" approve card-ok >/dev/null
+  if agent_card_answer approve '' >&2; then
+    agent_cards_until "$bg" approve '' >/dev/null
     wait "$bg"
     if agent_card_ran "$container" card-ok "$file"; then
       extra_item PASS 确认卡片 "跑命令前出了确认卡片，同意后命令跑了${svc:+（$svc 里有 card-ok）}"
@@ -414,8 +419,8 @@ agent_check_card() {
   agent_wait_idle 确认卡片 || return 0
   agent_say --reply any --wait "$([[ -n "$svc" ]] && echo 30 || echo 240)" --text "$ask_no" >"$file" 2>&1 &
   bg=$!
-  if agent_card_answer reject card-no >&2; then
-    agent_cards_until "$bg" reject card-no >/dev/null
+  if agent_card_answer reject '' >&2; then
+    agent_cards_until "$bg" reject '' >/dev/null
     wait "$bg"
     sleep 5
     if [[ -n "$svc" ]]; then
