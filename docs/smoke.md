@@ -61,7 +61,7 @@
 | `SMOKE_NOTE` | 一句话说明为什么 N/A，写进 N/A 行的说明 | 空 |
 | `MCP_TOOL`、`MCP_ARGS` | 工具项真调的只读工具（可不带插件前缀）和 JSON 参数；工具要标 `readOnlyHint` | 空、`{}`：只看 `tools/list` 有没有本插件工具 |
 | `EXTRA_TIMEOUT` | `extra_check` 的限时秒数 | `600` |
-| `SMOKE_SETTINGS` | 冒烟装插件时填的设置，bash 数组，每项 `名字=值`，如 `SMOKE_SETTINGS=(eula=true)`。见下面的“插件设置” | 空：只用 Schema 的默认值 |
+| `SMOKE_SETTINGS` | 冒烟装插件时填的设置，bash 数组，每项 `名字=值`，如 `export SMOKE_SETTINGS=(eula=true)`；写 `export` 免得 shellcheck 报声明没人读。见下面的“插件设置” | 空：只用 Schema 的默认值 |
 
 声明变量写在文件顶层（套件读入探针后就看它们）；`SMOKE_*` 运行时变量只在函数里读（见下）。
 
