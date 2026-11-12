@@ -24,6 +24,8 @@ case "${1:-}" in
     esac
     ;;
   ps) printf 'wonton-test--app-web--web\nwonton-test--app-web--web--bot\nwonton-test--db--db\n' ;;
+  info) printf '%s\n' "${FAKE_OS:-Ubuntu 24.04 LTS}" ;;
+  network) [[ -n "${FAKE_GATEWAY:-}" ]] && printf '%s\n' "$FAKE_GATEWAY" ;;
   logs) printf 'plugin-logs:%s\n' "$*" ;;
   inspect) printf '%s\n' "${FAKE_RUNNING:-true}" ;;
   run)
@@ -118,6 +120,10 @@ PY
   */upgrade*)
     [[ -n "${FAKE_HIT_FILE:-}" ]] && printf 'POST %s\n' "$url" >>"$FAKE_HIT_FILE"
     cat "${FAKE_RESULT_FILE:?}"
+    ;;
+  */_wonton/api/models/custom-provider)
+    printf '%s\n' "$*" >"${FAKE_ARGS_FILE:?}"
+    cat >"${FAKE_BODY_FILE:?}"
     ;;
   *)
     printf '%s\n' "$FAKE_SETTINGS"
@@ -244,6 +250,31 @@ has "$err" "装不了：这台主机缺 GPU" "blocked 要拦住升级"
 # 接口挂了：报错退出。
 run 1 FAKE_API=fail -- upgrade --yes || true
 has "$err" "预览失败" "接口挂了要报错"
+
+# model：key 只经标准输入进请求体，不出现在 curl 的参数和 dev.sh 的输出里。
+printf 'sk-test-only-1234\n' >"$work/model.key"
+export FAKE_ARGS_FILE="$work/model.args" FAKE_BODY_FILE="$work/model.body"
+run 0 -- model http://192.0.2.10:3425/v1 some-model "$work/model.key" || true
+has "$out" "模型网关接上了 http://192.0.2.10:3425/v1 的 some-model" "接好要报上游和模型"
+has "$(cat "$FAKE_BODY_FILE")" '{"base_url": "http://192.0.2.10:3425/v1", "model": "some-model", "key": "sk-test-only-1234"}' "请求体带上 key 文件里的 key"
+if grep -q sk-test-only "$FAKE_ARGS_FILE" || [[ "$out$err" == *sk-test-only* ]]; then
+  echo "FAIL key 出现在 curl 参数或输出里" >&2
+  failed=$((failed + 1))
+fi
+
+# Linux 上 host.docker.internal 换成模型网关插件网络的网关地址；Docker Desktop、OrbStack 上原样用。
+run 0 FAKE_GATEWAY=172.30.0.1 -- model http://host.docker.internal:3425/v1 m "$work/model.key" || true
+has "$(cat "$FAKE_BODY_FILE")" '"base_url": "http://172.30.0.1:3425/v1"' "Linux 上换成网关地址"
+run 0 "FAKE_OS=Docker Desktop" -- model http://host.docker.internal:3425/v1 m "$work/model.key" || true
+has "$(cat "$FAKE_BODY_FILE")" '"base_url": "http://host.docker.internal:3425/v1"' "Docker Desktop 上原样用"
+run 1 -- model http://host.docker.internal:3425/v1 m "$work/model.key" || true
+has "$err" "找不到模型网关的插件网络" "Linux 上找不到网络要报错"
+
+# key 文件读不到、地址不像地址：报错，不发请求。
+run 1 -- model http://192.0.2.10/v1 m "$work/nope.key" || true
+has "$err" "读不到 key 文件" "key 文件不存在要报错"
+run 1 -- model 192.0.2.10/v1 m "$work/model.key" || true
+has "$err" "上游地址要以 http:// 或 https:// 开头" "地址不对要报错"
 
 if ((failed > 0)); then
   echo "$failed 处失败" >&2
