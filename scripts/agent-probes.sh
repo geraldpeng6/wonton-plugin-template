@@ -462,13 +462,13 @@ agent_check_card() {
   [[ -z "$svc" ]] || docker exec "$container" rm -rf /workspace/card-ok >/dev/null 2>&1 || true
 }
 
-# 同意之后命令跑了没有：<容器>（空 = 看聊天）<文件名> <聊天记录>。看容器时等 20 秒文件出现。
+# 同意之后命令跑了没有：<容器>（空 = 看聊天）<文件名> <聊天记录>。看容器时最多等 AGENT_RUN_WAIT 秒（默认 60）文件出现。
 agent_card_ran() {
   if [[ -z "$1" ]]; then
     grep -q "$2" "$3"
     return
   fi
-  for _ in $(seq 1 20); do
+  for _ in $(seq 1 "${AGENT_RUN_WAIT:-60}"); do
     docker exec "$1" test -e "/workspace/$2" 2>/dev/null && return 0
     sleep 1
   done
