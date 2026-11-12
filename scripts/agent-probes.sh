@@ -14,7 +14,7 @@
 #   }
 #
 # 按 Agent 的行为选参数：agent_check_mcp_chat card（调 MCP 工具前也要确认）、agent_check_card <服务>（只读命令
-# 不出卡片，改成在工作区建文件、看那个服务容器里的文件）。有登录的 Agent 再加 agent_check_login <方式> <正则>、
+# 不出卡片，改成在工作区建文件、看那个服务容器里的文件）。有登录的 Agent 再加 agent_check_login <方式[,方式…]> <正则…>、
 # agent_check_login_web <方式…>、agent_check_login_redact。
 #
 # 扮演手机的两个验收工具是核心仓库 deploy/dev/core/Dockerfile 的 tunnel-client、echo-bot 两个构建目标，由调用方
@@ -329,24 +329,30 @@ agent_check_resume() { # <暗号>
   fi
 }
 
-# 聊天登录：/wonton login 要列出 <方式>（和 [其余方式…]）；发起 <方式> 后聊天里要出现 <正则>（链接、设备码或
-# 输入提示），到此为止，不真登录；再 /wonton login cancel 回到待命。这些都是桥自己回的，不要模型。
-agent_check_login() { # <方式> <正则> [其余方式…]
-  local method="$1" want="$2" out m
+# 聊天登录：/wonton login 要列出 <方式>（逗号分隔的几种都要在，发起第一种）；发起后聊天里每个 <正则> 都要命中
+# （链接、设备码或输入提示），到此为止，不真登录；再 /wonton login cancel 回到待命。这些都是桥自己回的，不要模型。
+agent_check_login() { # <方式[,方式…]> <正则…>
+  local methods method out m re missing
+  IFS=, read -ra methods <<<"$1"
+  method="${methods[0]}"
   agent_need 登录方式 || return 0
   out="$(agent_say --reply any --settle 10 --wait 60 --text '/wonton login' 2>&1)"
   printf '%s\n' "$out"
-  for m in "$method" "${@:3}"; do
+  for m in "${methods[@]}"; do
     grep -qF "/wonton login $m" <<<"$out" ||
       { extra_item FAIL 登录方式 "/wonton login 的回答里没有 $m：$(agent_tail "$out")"; return 0; }
   done
-  extra_item PASS 登录方式 "聊天里列出登录方式：$method${3:+ ${*:3}}"
+  extra_item PASS 登录方式 "聊天里列出登录方式 ${methods[*]}"
   out="$(agent_say --reply any --settle 10 --wait 90 --text "/wonton login $method" 2>&1)"
   printf '%s\n' "$out"
-  if grep -Eq "$want" <<<"$out"; then
+  missing=""
+  for re in "${@:2}"; do
+    grep -Eq "$re" <<<"$out" || missing="$missing $re"
+  done
+  if [[ -z "$missing" ]]; then
     extra_item PASS 登录链接 "发起 $method 后聊天里出现了登录链接或输入提示（到这为止，不真登录）"
   else
-    extra_item FAIL 登录链接 "发起 $method 后聊天里没有要的链接或提示：$(agent_tail "$out")"
+    extra_item FAIL 登录链接 "发起 $method 后聊天里没有$missing：$(agent_tail "$out")"
   fi
   out="$(agent_say --reply any --settle 10 --wait 60 --text '/wonton login cancel' 2>&1)"
   printf '%s\n' "$out"
