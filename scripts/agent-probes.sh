@@ -332,9 +332,13 @@ agent_wait_idle() { # <子项>
     # 空闲 = 房间安静够久（值得不到时为不算）且核心记的活动全为零（接口读不到时看作零）。
     if [[ -n "$owner" ]]; then
       last="$(agent_last_bot_ts "$owner" "$room_url")"
-      # 还没发过言时从这次等待算起。
-      age=$(( last > 0 ? now - last / 1000 : now - start ))
-      ((age >= quiet)) || idle_since=""
+      if [[ -n "$last" ]]; then
+        # 还没发过言时从这次等待算起；两台机器的时钟差把时间戳算成未来时按 0 算。
+        age=$(( last > 0 ? now - last / 1000 : now - start ))
+        ((age >= 0)) || age=0
+        ((age >= quiet)) || idle_since=""
+      fi
+      # 这次读不到房间事件时这拍判不了消息安静，保留上一拍的结果，不重置也不再放宽。
     fi
     [[ -z "$activity" || "$activity" == "0 0 0" ]] || idle_since=""
     if [[ -n "$activity" && "${activity##* }" != 0 ]]; then
