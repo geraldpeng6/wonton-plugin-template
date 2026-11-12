@@ -405,9 +405,10 @@ agent_check_card() {
   if [[ -n "$svc" ]]; then
     container="$(running_container "wonton-$SMOKE_INSTANCE--$SMOKE_SLUG--$svc")" ||
       { extra_item FAIL 确认卡片 "找不到服务 $svc 在跑的容器"; return 0; }
-    docker exec "$container" rm -f /workspace/card-ok /workspace/card-no >/dev/null 2>&1 || true
+    docker exec "$container" rm -rf /workspace/card-ok /workspace/card-no >/dev/null 2>&1 || true
     ask_ok='用 touch 在 /workspace 里创建文件 card-ok，然后只回答：建好了。'
-    ask_no='用 touch 在 /workspace 里创建文件 card-no，然后只回答：建好了。'
+    # 换一种命令再问：有的 Agent 记住刚允许过的命令形状，同一个 touch 第二次不再出卡片。
+    ask_no='用 mkdir 在 /workspace 里创建目录 card-no，然后只回答：建好了。'
   else
     ask_ok='用 shell 跑一条命令：echo card-ok，然后只说命令输出。'
     ask_no='再用 shell 跑一条命令：echo card-no，然后只说结果。'
@@ -453,7 +454,7 @@ agent_check_card() {
   fi
   cat "$file"
   rm -f "$file"
-  [[ -z "$svc" ]] || docker exec "$container" rm -f /workspace/card-ok >/dev/null 2>&1 || true
+  [[ -z "$svc" ]] || docker exec "$container" rm -rf /workspace/card-ok >/dev/null 2>&1 || true
 }
 
 # 同意之后命令跑了没有：<容器>（空 = 看聊天）<文件名> <聊天记录>。看容器时等 20 秒文件出现。
