@@ -10,6 +10,7 @@ scripts/check.sh
 scripts/publish.sh
 scripts/lib.sh
 scripts/probes.sh
+scripts/agent-probes.sh
 scripts/smoke.sh
 scripts/mcp_client.py
 scripts/kit.files
