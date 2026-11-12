@@ -34,6 +34,7 @@
 : "${WONTON_SMOKE_CURL_IMAGE:=curlimages/curl:8.23.0}"
 AGENT_PHONE_STATE=""
 AGENT_OWNER_TOKEN=""
+AGENT_CARD_LOG=""
 
 # 用户的手机：tunnel-client 进核心的网络命名空间，和核心配对后在 127.0.0.1:18008 开带凭据的代理；
 # echo-bot probe 经它连 Matrix。只起一次，后面的子项共用。起不来时记一行 FAIL 加密私聊（配对坏了是真问题），
@@ -241,6 +242,7 @@ agent_check_mcp_chat() {
 agent_card_answer() {
   local want="$1" needle="$2" seconds="${3:-${AGENT_CARD_WAIT:-120}}" max="${AGENT_CARD_MAX:-1800}"
   local list id body owner room_url start now idle=0 tick=0 last_ts=0 ts want_kind
+  AGENT_CARD_LOG=""
   start="$(date +%s)"
   [[ "$want" == reject ]] && want_kind=reject_once || want_kind=allow_once
   # Bot 还在发消息（后台积压没消化完）就一直等：限时按它安静多久算，不看墙上时钟；绝对上限兜底。
@@ -256,14 +258,16 @@ agent_card_answer() {
           // [.confirmations[] | select(.id == $id) | .choices[]?
             | select(((.answer // .kind) // "") | startswith($a))][0] // {})
         | {answer: (.answer // $a)} + (if .choice_id then {choice_id} else {} end)' <<<"$list")"
-      echo "卡片 $id（$(jq -r --arg i "$id" '[.confirmations[] | select(.id == $i) | .title][0] // ""' <<<"$list")）：回答 $body"
+      AGENT_CARD_LOG="$id（$(jq -r --arg i "$id" '[.confirmations[] | select(.id == $i) | .title][0] // ""' <<<"$list")）：$body"
+      echo "卡片 $AGENT_CARD_LOG"
       smoke_api POST "/_wonton/confirmations/$id" -H 'Content-Type: application/json' -d "$body"
       return
     fi
     now="$(date +%s)"
     if ((now - start >= max)); then
       list="$(smoke_api GET /_wonton/api/confirmations 2>/dev/null)" || list='{}'
-      echo "等卡片超过 ${max} 秒，还挂着：$(jq -r '[.confirmations[]? | "\(.id[:8] // "") \(.title // "")"] | join("；")' <<<"$list")"
+      AGENT_CARD_LOG="等到 ${max} 秒，还挂着：$(jq -r '[.confirmations[]? | "\(.id[:8] // "") \(.title // "")"] | join("；")' <<<"$list")"
+      echo "等卡片超时：$AGENT_CARD_LOG"
       return 1
     fi
     if [[ -n "$owner" ]] && ((tick % 2 == 0)); then
@@ -278,7 +282,8 @@ agent_card_answer() {
     idle=$((idle + 1))
     if ((idle > seconds)); then
       list="$(smoke_api GET /_wonton/api/confirmations 2>/dev/null)" || list='{}'
-      echo "Bot 安静超过 ${seconds} 秒，还挂着：$(jq -r '[.confirmations[]? | "\(.id[:8] // "") \(.title // "")"] | join("；")' <<<"$list")"
+      AGENT_CARD_LOG="Bot 安静超过 ${seconds} 秒，还挂着：$(jq -r '[.confirmations[]? | "\(.id[:8] // "") \(.title // "")"] | join("；")' <<<"$list")"
+      echo "等卡片超时：$AGENT_CARD_LOG"
       return 1
     fi
   done
@@ -422,11 +427,11 @@ agent_check_card() {
     if agent_card_ran "$container" card-ok "$file"; then
       extra_item PASS 确认卡片 "跑命令前出了确认卡片，同意后命令跑了${svc:+（$svc 里有 card-ok）}"
     else
-      extra_item FAIL 确认卡片 "同意了卡片，等不到命令跑完：$(agent_tail "$(cat "$file")")"
+      extra_item FAIL 确认卡片 "同意了卡片，等不到命令跑完：$(agent_tail "$AGENT_CARD_LOG" 200)｜$(agent_tail "$(cat "$file")")"
     fi
   else
     kill "$bg" 2>/dev/null; wait "$bg"
-    extra_item FAIL 确认卡片 "让 Agent 跑命令，等不到确认卡片：$(agent_tail "$(cat "$file")")"
+    extra_item FAIL 确认卡片 "让 Agent 跑命令，等不到确认卡片：$(agent_tail "$AGENT_CARD_LOG" 200)｜$(agent_tail "$(cat "$file")")"
   fi
   cat "$file"
   # 第二问同样等上一问真的结束：不等时后台还在跑，提示被回一句状态就压到积压里，第二张卡片错过窗口。
@@ -450,7 +455,7 @@ agent_check_card() {
     fi
   else
     kill "$bg" 2>/dev/null; wait "$bg"
-    extra_item FAIL 确认卡片 "第二次跑命令等不到确认卡片：$(agent_tail "$(cat "$file")")"
+    extra_item FAIL 确认卡片 "第二次跑命令等不到确认卡片：$(agent_tail "$AGENT_CARD_LOG" 200)｜$(agent_tail "$(cat "$file")")"
   fi
   cat "$file"
   rm -f "$file"
