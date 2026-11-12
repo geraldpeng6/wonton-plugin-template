@@ -19,8 +19,10 @@ model_upstream() {
   if [[ "$host" == host.docker.internal ]] &&
     ! docker info --format '{{.OperatingSystem}}' 2>/dev/null | grep -qE 'Docker Desktop|OrbStack'; then
     gateway="$(docker network inspect "wonton-$instance--ai-usemagpie-magpie" \
-      --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null)" && [[ -n "$gateway" ]] ||
+      --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null)" || gateway=""
+    if [[ -z "$gateway" ]]; then
       die "找不到模型网关的插件网络 wonton-$instance--ai-usemagpie-magpie：核心没装好模型网关？看 scripts/dev.sh status"
+    fi
     url="${url/host.docker.internal/$gateway}"
   fi
   # 核心先用这个模型发一次真实请求再保存：key 被拒、模型不存在会如实报错；连不上时网关照样保存，核心报连不上。

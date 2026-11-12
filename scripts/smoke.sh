@@ -9,8 +9,6 @@
 # --upgrade-from：从哪个 tag 升级验证数据；默认取 git describe 到的最近 tag，本仓库没有 tag 时“升级保数据”记 N/A。
 # WONTON_DEV_EGRESS_PROXY：给了就先把它配成核心的出口代理（插件冷启动要出网时用），不给就不配。
 # WONTON_SMOKE_TMPDIR：临时目录放在哪（默认 /tmp）；/tmp 是内存盘的主机换到磁盘上，路径越短越好（见下面的 107 字节）。
-# WONTON_DEV_MODEL_BASE_URL、WONTON_DEV_MODEL、WONTON_DEV_MODEL_KEY_FILE：给了地址就三个都要给。插件申请了 models 时
-# 把这个上游接进冒烟实例的模型网关（同 dev.sh model），探针能验真实对话；不给时网关里没有模型。
 set -uo pipefail
 # shellcheck source=scripts/lib.sh
 . "$(dirname "$0")/lib.sh"
