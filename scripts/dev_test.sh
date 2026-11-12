@@ -26,6 +26,14 @@ case "${1:-}" in
   ps) printf 'wonton-test--app-web--web\nwonton-test--app-web--web--bot\nwonton-test--db--db\n' ;;
   logs) printf 'plugin-logs:%s\n' "$*" ;;
   inspect) printf '%s\n' "${FAKE_RUNNING:-true}" ;;
+  run)
+    # in_core：plugin check 回清单行，plugin pack 回假的包字节。
+    case "$*" in
+      *"plugin check"*) printf '插件 com.example.app 1.2.3\n' ;;
+      *"plugin pack"*) printf 'fake-package\n' ;;
+      *) exit 1 ;;
+    esac
+    ;;
   exec)
     shift
     case "$1" in
@@ -99,6 +107,18 @@ else:
     sys.exit(22)
 PY
     ;;
+  */upgrade/preview)
+    [[ -n "${FAKE_HIT_FILE:-}" ]] && printf 'POST %s\n' "$url" >>"$FAKE_HIT_FILE"
+    if [[ -n "${FAKE_PREVIEW_FAIL:-}" ]]; then
+      printf '%s\n' "$FAKE_PREVIEW_FAIL"
+      exit 22
+    fi
+    cat "${FAKE_PREVIEW_FILE:?}"
+    ;;
+  */upgrade*)
+    [[ -n "${FAKE_HIT_FILE:-}" ]] && printf 'POST %s\n' "$url" >>"$FAKE_HIT_FILE"
+    cat "${FAKE_RESULT_FILE:?}"
+    ;;
   *)
     printf '%s\n' "$FAKE_SETTINGS"
     ;;
@@ -134,6 +154,13 @@ has() {
 
 settings='{"url":"http://host.docker.internal:7899","source":"settings","provider":null,"plugin_path":null,"core_path":null,"host_cidrs":[],"direct_cidrs":[],"notices":[],"restarts":[]}'
 bad_settings='{"url":"http://host.docker.internal:1","source":"settings","provider":null,"plugin_path":null,"core_path":null,"host_cidrs":[],"direct_cidrs":[],"notices":[],"restarts":[]}'
+# upgrade 假接口的默认回答：预览带一项权限（断言 grant 带进了升级请求），结果按核心的 UpgradeResult。
+# 存成文件经环境变量传给假 curl：JSON 里的引号过不了 shellcheck 的 export 检查。
+printf '%s\n' '{"title":"示例","id":"com.example.app","version":"1.2.4","permissions":[{"permission":"network.egress","text":"访问外网","risk":false}],"notices":[],"blocked":null}' >"$work/preview.json"
+printf '%s\n' '{"plugin":{"id":"com.example.app","title":"示例","version":"1.2.4","web_url":"http://app.example.localhost:18480"},"added_tools":{"type":"none"}}' >"$work/result.json"
+printf '%s\n' '{"title":"示例","id":"com.example.app","version":"1.2.4","permissions":[],"notices":[],"blocked":"这台主机缺 GPU"}' >"$work/blocked.json"
+export FAKE_PREVIEW_FILE="$work/preview.json" FAKE_RESULT_FILE="$work/result.json"
+not_installed='{"error":{"kind":"not_installed","message":"插件 com.example.app 没有安装"}}'
 
 run 0 -- logs || true
 has "$out" core-logs:core "不给参数时跟核心"
@@ -198,6 +225,25 @@ has "$err" "取不到等回答的卡片" "取不到卡片要报错"
 # 没有等回答的卡片：说明，不算失败。
 run 0 'FAKE_CARDS={"confirmations":[]}' -- approve || true
 has "$out" "没有等回答的卡片" "没有卡片时说明"
+
+# upgrade：打包→POST upgrade/preview→（--yes）→POST upgrade?grant=，grant 取自预览的权限。
+: >"$work/hit"
+run 0 "FAKE_HIT_FILE=$work/hit" -- upgrade --yes || true
+has "$out" "升级好了：示例 1.2.4" "升级完要报新版本"
+has "$(cat "$work/hit")" "/_wonton/api/plugins/com.example.app/upgrade/preview" "先打升级预览"
+has "$(cat "$work/hit")" "/upgrade?grant=network.egress" "按预览的权限发升级"
+
+# 没装着（预览回 not_installed，像核心一样回错误正文和非 2xx）：报核心的原因，退出码 1。
+run 1 "FAKE_PREVIEW_FAIL=$not_installed" -- upgrade --yes || true
+has "$err" "预览失败：插件 com.example.app 没有安装（not_installed）" "没装着要报预览失败"
+
+# 预览说这台主机装不了：拦住，不升级。
+run 1 "FAKE_PREVIEW_FILE=$work/blocked.json" -- upgrade --yes || true
+has "$err" "装不了：这台主机缺 GPU" "blocked 要拦住升级"
+
+# 接口挂了：报错退出。
+run 1 FAKE_API=fail -- upgrade --yes || true
+has "$err" "预览失败" "接口挂了要报错"
 
 if ((failed > 0)); then
   echo "$failed 处失败" >&2
