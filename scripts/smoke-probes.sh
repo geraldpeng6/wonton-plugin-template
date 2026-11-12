@@ -33,6 +33,8 @@
 #       一条数据并把标记原样存进 $SMOKE_STATE，data_check 读回标记去应用里找，对不上就打印看到了什么并返回非 0。
 #       应用不存用户数据时写 DATA_NA=1（两项记 N/A）。
 # 装之前要准备（如先配出口代理）：写 before_install。
+# 设置：清单有 settings 时，冒烟装插件要填的值写 SMOKE_SETTINGS=(名字=值 …)（如要用户同意许可的必填项），
+#       不写进 Schema 的 default；临时多给几项用 scripts/dev.sh smoke --setting 名字=值。
 # 附加检查：六项之外还要验的（发一条通知、经网关真调一次模型等）写 extra_check，在工具项之后跑、限 EXTRA_TIMEOUT 秒
 #       （默认 600），结果另记一行“附加检查”，失败同样算冒烟失败。一次要验好几件事时，每件用
 #       extra_item <PASS|FAIL|N/A> <子项> <说明> 记一行，结果行是“附加检查·<子项>”，任一子项 FAIL 即失败。
