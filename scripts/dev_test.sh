@@ -281,6 +281,35 @@ has "$err" "读不到 key 文件" "key 文件不存在要报错"
 run 1 -- model 192.0.2.10/v1 m "$work/model.key" || true
 has "$err" "上游地址要以 http:// 或 https:// 开头" "地址不对要报错"
 
+# 附加检查的子项：extra_item 记的每一行成为“附加检查·<子项>”，汇总一行按最坏的算。
+extra_out() { # <extra_check 的函数体>
+  (
+    set +eu
+    PROBES_LOG="$work/probes.log" SMOKE_STATE="$work/marker"
+    : >"$PROBES_LOG"
+    # shellcheck source=scripts/lib.sh
+    . "$root/scripts/lib.sh"
+    # shellcheck source=scripts/probes.sh
+    . "$root/scripts/probes.sh"
+    eval "extra_check() { $1; }"
+    probes_extra
+  )
+}
+out="$(extra_out 'extra_item PASS 甲 好了; extra_item N/A 乙 没给镜像')"
+has "$out" "PASS 附加检查·甲：好了" "PASS 子项原样打印"
+has "$out" "N/A  附加检查·乙：没给镜像" "N/A 子项原样打印"
+has "$out" "PASS 附加检查：1 个子项通过" "有通过、没有失败时汇总通过"
+out="$(extra_out 'extra_item PASS 甲 好了; extra_item FAIL 乙 "坏了
+第二行"')"
+has "$out" "FAIL 附加检查·乙：坏了 第二行" "说明里的换行换成空格"
+has "$out" "FAIL 附加检查：子项失败：乙" "任一子项失败时汇总失败"
+out="$(extra_out 'extra_item N/A 甲 不适用')"
+has "$out" "N/A  附加检查：1 个子项都没测" "子项全是 N/A 时汇总 N/A"
+out="$(extra_out 'echo 只看返回值; return 3')"
+has "$out" "FAIL 附加检查：extra_check 失败（退出 3）" "钩子返回非 0 时失败"
+out="$(extra_out 'echo 只看返回值')"
+has "$out" "PASS 附加检查：extra_check 通过" "没记子项时只看返回值"
+
 if ((failed > 0)); then
   echo "$failed 处失败" >&2
   exit 1

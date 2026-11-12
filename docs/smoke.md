@@ -30,6 +30,8 @@
 | `WONTON_DEV_CORE_SUBNET` | 核心网络用的子网（如 `192.0.2.0/24`），几套栈共用一台 Docker 时不占默认地址池 | Docker 分配 |
 | `WONTON_DEV_EGRESS_PROXY` | 装插件之前先把它配成核心的出口代理 | 不配出口代理 |
 | `WONTON_DEV_MODEL_BASE_URL`、`WONTON_DEV_MODEL`、`WONTON_DEV_MODEL_KEY_FILE` | 插件申请了 `models` 时，把这个 OpenAI 兼容的上游接进冒烟实例的模型网关（同 `dev.sh model`）；给了地址就三个都要给，key 只从文件读 | 网关里没有模型 |
+| `WONTON_SMOKE_TUNNEL_CLIENT_IMAGE`、`WONTON_SMOKE_ECHO_BOT_IMAGE` | Agent 插件扮演用户手机的两个验收工具（核心仓库 `deploy/dev/core/Dockerfile` 的 `tunnel-client`、`echo-bot` 构建目标）；要手机的附加检查子项用它们 | 这些子项记 N/A 并写原因 |
+| `WONTON_SMOKE_CURL_IMAGE` | 经手机的隧道代理取 Matrix 登录令牌用的 curl 镜像 | `curlimages/curl:8.23.0` |
 | `WONTON_OWNER_EMAIL` | 用户邮箱 | `owner@wonton.internal`（核心内部邮件收得到的地址） |
 | `WONTON_SMOKE_TMPDIR` | 一次性工作区和实例数据放在哪；路径越短越好，宿主网络插件的 unix 套接字路径上限是 107 字节 | `/tmp` |
 | `WONTON_SMOKE_MAX_STACKS`、`WONTON_SMOKE_WAIT_MINUTES` | 这台 Docker 上别人的验证栈达到这个数时排队，最多等多少分钟 | 不排队 |
@@ -63,6 +65,10 @@
 | `smoke_api <方法> <路径> [curl 参数…]` | 带用户令牌调核心管理接口 |
 | `mcp list`、`mcp call <工具> [<JSON>]` | 经 MCP 总线列出、调用工具 |
 | `probes_owner_room_wait <秒> <文字>` | 等用户的通知房间里出现包含这段文字的新消息 |
+| `extra_item <PASS\|FAIL\|N/A> <子项> <说明>` | 只在 `extra_check` 里用：记一行附加检查的子项 |
+| `agent_check_*`、`agent_say` | Agent 插件的附加检查（加密私聊、模型回答、MCP 工具、确认卡片、打断、重启、续聊、名单外不应答），用法见 `scripts/agent-probes.sh` 开头 |
+
+`extra_check` 默认限时 600 秒，探针里写 `EXTRA_TIMEOUT=<秒>` 可以放宽（Agent 插件一轮要发十几条消息）。
 
 登录跳转和网页请求带的是浏览器同款的 `Accept`（含 `*/*`），按内容协商的登录入口不会回 406。
 
@@ -78,7 +84,9 @@ N/A  <项>：<说明>
 
 标签和项名之间是空白，项名和说明之间是全角冒号。项名固定为六个：`装得上`、`网页打得开`、`用户身份能用`、
 `工具Bot调得到`、`升级保数据`、`重装保数据`；同一项可能有不止一行，有一行 FAIL 就算这项失败。探针写了 `extra_check`
-时另有一行 `附加检查`，FAIL 同样算失败。跑完清理后还有残留时另有一行 `FAIL 清理：…`。
+时另有一行 `附加检查`，FAIL 同样算失败。`extra_check` 用 `extra_item` 记了子项时，先逐行打印子项
+`PASS 附加检查·<子项>：<说明>`（同一子项可以有几行），再打汇总的 `附加检查`：钩子返回非 0 或任一子项 FAIL 时是 FAIL，
+子项全是 N/A 时是 N/A，否则 PASS。跑完清理后还有残留时另有一行 `FAIL 清理：…`。
 
 详细日志写在工作区的 `.wonton/smoke.log`，结果行里的“看日志”指的就是它。
 

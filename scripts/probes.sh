@@ -17,6 +17,9 @@
 # 有 FAIL 时 DID_FAIL=1，退出码由调用方定；这里的函数不 exit，停不停由调用方决定。
 # 数据探针 data_write / data_check：插件不存用户数据时写 DATA_NA=1（两项记 N/A）。
 DID_FAIL=0
+# Agent 插件用的助手（扮演用户手机发加密消息等），插件在 extra_check 里组合。
+# shellcheck source=scripts/agent-probes.sh
+. "$(dirname "${BASH_SOURCE[0]}")/agent-probes.sh"
 
 say() { echo "== $*"; }
 pass() { echo "PASS $1：$2"; }
@@ -362,16 +365,54 @@ probes_mcp() { # 工具 Bot 调得到：tools/list 有本插件工具，只读�
   fi
 }
 
-probes_extra() { # 附加检查：六项之外插件自己要验的（发通知、经网关真调一次模型等），探针写了 extra_check 才有这一项
-  local before out
+# 附加检查的子项：extra_check 里一项要验好几件事时，每件记一行 extra_item <PASS|FAIL|N/A> <子项> <说明>，
+# 结果行是“附加检查·<子项>”。子项名里不能有全角冒号和制表符，说明里的换行和制表符换成空格。
+extra_item() {
+  case "${1:-}" in
+    PASS | FAIL | N/A) ;;
+    *) echo "extra_item 的结果只能是 PASS、FAIL、N/A：${1:-}" >&2; return 2 ;;
+  esac
+  [[ $# -eq 3 && -n "$2" && "$2" != *：* && "$2" != *$'\t'* ]] || { echo "extra_item 用法：<PASS|FAIL|N/A> <子项> <说明>" >&2; return 2; }
+  [[ -n "${SMOKE_EXTRA_ITEMS:-}" ]] || { echo "extra_item 只能在 extra_check 里用" >&2; return 2; }
+  local why="${3//$'\n'/ }"
+  printf '%s\t%s\t%s\n' "$1" "$2" "${why//$'\t'/ }" >>"$SMOKE_EXTRA_ITEMS"
+  echo "$1 附加检查·$2：$why"
+}
+
+# 附加检查：六项之外插件自己要验的（发通知、经网关真调一次模型等），探针写了 extra_check 才有这一项。
+# 限时 EXTRA_TIMEOUT 秒（探针里设，默认 600）。记了子项时先逐行打印子项，再打一行汇总：钩子非 0 或任一子项 FAIL
+# 是 FAIL，子项全是 N/A 是 N/A，否则 PASS。
+probes_extra() {
+  local before out rc=0 verdict item why passed=0 total=0 broken=""
   declare -F extra_check >/dev/null || return 0
   say "附加检查（extra_check）"
   before="$(wc -c <"$PROBES_LOG")"
-  if probes_hook extra_check 600; then
-    out="$(tail -c "+$((before + 1))" "$PROBES_LOG" | tail -c 200 | tr '\n' ' ')"
+  SMOKE_EXTRA_ITEMS="$(mktemp "${SMOKE_STATE%/*}/extra-items.XXXXXX")"
+  export SMOKE_EXTRA_ITEMS
+  probes_hook extra_check "${EXTRA_TIMEOUT:-600}" || rc=$?
+  while IFS=$'\t' read -r verdict item why; do
+    total=$((total + 1))
+    case "$verdict" in
+      PASS) passed=$((passed + 1)); pass "附加检查·$item" "$why" ;;
+      FAIL) broken="$broken${broken:+、}$item"; fail "附加检查·$item" "$why" ;;
+      *) na "附加检查·$item" "$why" ;;
+    esac
+  done <"$SMOKE_EXTRA_ITEMS"
+  rm -f "$SMOKE_EXTRA_ITEMS"
+  unset SMOKE_EXTRA_ITEMS
+  out="$(tail -c "+$((before + 1))" "$PROBES_LOG" | tail -c 200 | tr '\n' ' ')"
+  if ((rc == 124)); then
+    fail 附加检查 "extra_check 超过 ${EXTRA_TIMEOUT:-600} 秒没跑完，见 $PROBES_LOG 末尾：$out"
+  elif ((rc != 0)); then
+    fail 附加检查 "extra_check 失败（退出 $rc），见 $PROBES_LOG 末尾：$out"
+  elif [[ -n "$broken" ]]; then
+    fail 附加检查 "子项失败：$broken"
+  elif ((total == 0)); then
     pass 附加检查 "extra_check 通过${out:+：$out}"
+  elif ((passed == 0)); then
+    na 附加检查 "$total 个子项都没测（原因见各子项）"
   else
-    fail 附加检查 "extra_check 失败，见 $PROBES_LOG 末尾：$(tail -c 200 "$PROBES_LOG" | tr '\n' ' ')"
+    pass 附加检查 "$passed 个子项通过，$((total - passed)) 个没测"
   fi
 }
 
