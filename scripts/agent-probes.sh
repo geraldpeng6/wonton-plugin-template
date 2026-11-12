@@ -387,6 +387,8 @@ agent_check_card() {
     extra_item FAIL 确认卡片 "让 Agent 跑命令，等不到确认卡片：$(agent_tail "$(cat "$file")")"
   fi
   cat "$file"
+  # 第二问同样等上一问真的结束：不等时后台还在跑，提示被回一句状态就压到积压里，第二张卡片错过窗口。
+  agent_wait_idle 确认卡片 || return 0
   agent_say --reply any --wait "$([[ -n "$svc" ]] && echo 30 || echo 240)" --text "$ask_no" >"$file" 2>&1 &
   bg=$!
   if agent_card_answer reject card-no >&2; then
