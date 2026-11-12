@@ -22,6 +22,7 @@
 # WONTON_SMOKE_CURL_IMAGE 只用来经手机的隧道代理取 Matrix 登录令牌。
 # 要模型回答的子项（模型能回话、经聊天调工具、确认卡片、打断、续聊）要先接模型上游（WONTON_DEV_MODEL_*），没接时记 N/A。
 # 等模型回答默认 240 秒，慢的 Agent 在探针里设 AGENT_WAIT（秒）。
+# 等确认卡片默认 120 秒，卡片出得慢的 Agent 在探针里设 AGENT_CARD_WAIT（秒）；要模型先想才出卡的给到 300 以上。
 # 只要 Bot 回了话就算数的（加密私聊、名单外不应答）不要模型：没有模型时 Bot 回的报错也是一条加密回复。
 
 : "${WONTON_SMOKE_CURL_IMAGE:=curlimages/curl:8.23.0}"
@@ -178,11 +179,11 @@ agent_check_mcp_chat() {
   rm -f "$file"
 }
 
-# 等一张标题、说明或参数里含 <文字> 的确认卡片，按 <approve|reject> 回答，最多等 [秒数]（默认 120）；卡片没出现返回 1。选项带 choice_id 的
-# （ACP 的权限卡）要把那个选项自己的 answer 和 choice_id 一起发回去。
+# 等一张标题、说明或参数里含 <文字> 的确认卡片，按 <approve|reject> 回答，最多等 [秒数]（默认 AGENT_CARD_WAIT 或 120 秒）；卡片没出现返回 1。
+# 选项带 choice_id 的（ACP 的权限卡）要把那个选项自己的 answer 和 choice_id 一起发回去。
 agent_card_answer() {
   local want="$1" needle="$2" list id body
-  for _ in $(seq 1 "${3:-120}"); do
+  for _ in $(seq 1 "${3:-${AGENT_CARD_WAIT:-120}}"); do
     list="$(smoke_api GET /_wonton/api/confirmations 2>/dev/null)" || list='{}'
     id="$(jq -r --arg n "$needle" '[.confirmations[]? | select(((.title // "") + " " + (.description // "") + " "
       + ((.arguments // {}) | tostring)) | contains($n)) | .id][0] // empty' <<<"$list")"
