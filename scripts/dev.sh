@@ -38,6 +38,7 @@
 # 默认地址池（只有约 30 个网络，几套栈共用一台 Docker 时会用光）；写进 .wonton/compose.subnet.yaml，栈拆掉之前一直沿用。
 # WONTON_DEV_STATE（如 ~/.w/<插件名>）把 .wonton 整个换到别处，每次执行都要带上：宿主网络插件的中继套接字在
 # <它>/data/apps/<插件 id>/relay/webui.sock，unix 套接字路径最多 107 字节，仓库放得深时核心会拒装。
+# 一个仓库放多家插件：WONTON_PLUGIN 指到插件目录（如 WONTON_PLUGIN=agents/<名>），状态放在 .wonton/<目录名>。
 set -euo pipefail
 # forget_environment 会清掉所有 WONTON_*，先留一份。
 core_subnet="${WONTON_DEV_CORE_SUBNET:-}"
@@ -86,7 +87,7 @@ first_settings() {
   instance="${WONTON_INSTANCE:-}"
   if [[ -z "$instance" ]]; then
     local base
-    base="$(basename "$root")"
+    base="$(basename "$plugin")"
     base="${base#wonton-plugin-}"
     base="$(printf '%s' "${base#wonton-}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9' | cut -c1-10)"
     instance="${base:-dev}$(random_hex 2)"
@@ -312,7 +313,7 @@ PY
 }
 
 install_plugin() {
-  local yes="" ref="" dir="$root" arg preview grants result answer
+  local yes="" ref="" dir="$plugin" arg preview grants result answer
   for arg in "$@"; do
     case "$arg" in
       --yes) yes=1 ;;
@@ -321,12 +322,13 @@ install_plugin() {
     esac
   done
   need_env
+  need_plugin
   # 放在 .wonton/ 里：Docker Desktop 一定能挂载仓库下面的目录。退出时才删，所以 tmp 不是局部变量。
   tmp="$(mktemp -d "$state/tmp.XXXXXX")"
   trap 'rm -rf "$tmp"' EXIT
   if [[ -n "$ref" ]]; then
     mkdir "$tmp/src"
-    git -C "$root" archive "$ref" | tar -x -C "$tmp/src" || die "导不出 $ref（git archive 失败）"
+    git -C "$root" archive "$(plugin_tree "$ref")" | tar -x -C "$tmp/src" || die "导不出 $(plugin_tree "$ref")（git archive 失败）"
     dir="$tmp/src"
   fi
   in_core "$dir" plugin pack /plugin >"$tmp/package.tar" || die "打包失败，原因见上面"
@@ -381,7 +383,7 @@ reinstall() {
 # 升级已装的插件：走核心的升级接口，数据和 Bot 的 Matrix 设备都保留（reinstall 是卸载再装，会吊销 Bot 设备，
 # Bot 就读不到旧房间的加密历史了）。
 upgrade() {
-  local yes="" ref="" dir="$root" arg id preview grants result answer
+  local yes="" ref="" dir="$plugin" arg id preview grants result answer
   for arg in "$@"; do
     case "$arg" in
       --yes) yes=1 ;;
@@ -390,13 +392,14 @@ upgrade() {
     esac
   done
   need_env
+  need_plugin
   id="$(plugin_id)"
   # 放在 .wonton/ 里：Docker Desktop 一定能挂载仓库下面的目录。退出时才删，所以 tmp 不是局部变量。
   tmp="$(mktemp -d "$state/tmp.XXXXXX")"
   trap 'rm -rf "$tmp"' EXIT
   if [[ -n "$ref" ]]; then
     mkdir "$tmp/src"
-    git -C "$root" archive "$ref" | tar -x -C "$tmp/src" || die "导不出 $ref（git archive 失败）"
+    git -C "$root" archive "$(plugin_tree "$ref")" | tar -x -C "$tmp/src" || die "导不出 $(plugin_tree "$ref")（git archive 失败）"
     dir="$tmp/src"
   fi
   in_core "$dir" plugin pack /plugin >"$tmp/package.tar" || die "打包失败，原因见上面"
@@ -829,7 +832,7 @@ case "${1:-}" in
   session) session "${@:2}" ;;
   mcp) mcp "${@:2}" ;;
   approve) approve "${@:2}" ;;
-  smoke) "$root/scripts/smoke.sh" "${@:2}" ;;
+  smoke) WONTON_PLUGIN="$plugin_rel" "$root/scripts/smoke.sh" "${@:2}" ;;
   probes)
     # 探针套件在这里才 source：里面有的名字（如 mcp）会盖过本文件的函数，probes 自己的路不受影响。
     # shellcheck source=scripts/probes.sh

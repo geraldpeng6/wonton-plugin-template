@@ -24,6 +24,7 @@
 
 | 环境变量 | 作用 | 不设时 |
 | --- | --- | --- |
+| `WONTON_PLUGIN` | 一个仓库放多家插件时，插件包目录（相对仓库根，如 `agents/<名>`）。探针放在这个目录的 `smoke-probes.sh`，升级起点只认 `<目录名>/v*` 的 tag | 仓库根就是插件包，探针在 `scripts/smoke-probes.sh` |
 | `WONTON_CORE_IMAGE` | 核心镜像 | `ghcr.io/wontonapp/wonton-core:main` |
 | `WONTON_PULL` | `never`：用本机已有的核心镜像，不拉取 | 每次起栈先拉取 |
 | `WONTON_DEV_CORE_SUBNET` | 核心网络用的子网（如 `192.0.2.0/24`），几套栈共用一台 Docker 时不占默认地址池 | Docker 分配 |

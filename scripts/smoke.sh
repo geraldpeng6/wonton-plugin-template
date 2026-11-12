@@ -2,7 +2,8 @@
 # 插件合并前的端到端冒烟：用工作区的插件起一套一次性开发环境，六项真实请求，不用 mock。
 #   scripts/dev.sh smoke [--upgrade-from <tag> | --no-upgrade <原因>] [--bridge-image <镜像>]
 # 六项：装得上 / 网页打得开 / 用户身份能用 / 工具 Bot 调得到 / 升级保数据 / 重装保数据；探针写了 extra_check 时另有一项附加检查。任何 FAIL 退出非 0。
-# 插件自己的探测在 scripts/smoke-probes.sh，写法见模板里的这个文件。
+# 插件自己的探测在 scripts/smoke-probes.sh，写法见模板里的这个文件；一个仓库放多家插件时，WONTON_PLUGIN 指插件目录，
+# 探针放在那个目录的 smoke-probes.sh。
 # 作者已有的 .wonton 不动：整个工作区复制到临时目录，用冒烟自己的实例，跑完删掉容器、网络、卷和目录。
 # 输入变量、输出格式和退出码是和正式冒烟共用的约定，见模板仓库的 docs/smoke.md。
 #
@@ -33,6 +34,7 @@ done
 for tool in docker curl jq python3 timeout nice flock git; do
   need "$tool"
 done
+need_plugin
 
 # 冒烟只访问本机网关和栈内地址：主机为了上外网导出了代理变量时，这些请求被代理截走会回 502。
 # 套件自己的 curl 都带 --noproxy；这里兜住探针里没带的。
@@ -41,9 +43,12 @@ for name in no_proxy NO_PROXY; do
 done
 
 caller_dir="$PWD"
-mkdir -p "$root/.wonton"
-exec 9>"$root/.wonton/smoke.lock"
-flock -n 9 || die "同一仓库的另一套冒烟正在跑"
+# 锁和日志按插件放：多插件仓库的几家可以同时各跑一套冒烟。
+smoke_home="$root/.wonton"
+[[ "$plugin_rel" == . ]] || smoke_home="$root/.wonton/${plugin_rel//\//-}"
+mkdir -p "$smoke_home"
+exec 9>"$smoke_home/smoke.lock"
+flock -n 9 || die "同一个插件的另一套冒烟正在跑"
 
 # 状态目录放短路径：宿主网络插件的中继套接字在 <状态>/data/apps/<插件 id 把 . 换成 ->/relay/webui.sock，unix 套接字
 # 路径最多 107 字节。/tmp/ws.XXXXXX/s 是 16 字节，id 最长 63 时正好 107。不用 TMPDIR：macOS 的 TMPDIR 在
@@ -53,10 +58,11 @@ tmp_root="${WONTON_SMOKE_TMPDIR:-/tmp}"
 [[ -d "$tmp_root" ]] || die "WONTON_SMOKE_TMPDIR 不是目录：$tmp_root"
 work="$(mktemp -d "${tmp_root%/}/ws.XXXXXX")"
 copy="$work/repo"
-LOG="$root/.wonton/smoke.log"
+LOG="$smoke_home/smoke.log"
 : >"$LOG"
 instance="smoke$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
 SMOKE_DIR="$copy"
+if [[ "$plugin_rel" == . ]]; then SMOKE_PLUGIN="$copy"; else SMOKE_PLUGIN="$copy/$plugin_rel"; fi
 SMOKE_DEV_STATE="$work/s"
 # 数据标记是个空文件（与 e2e 冒烟的约定一致）：插件钩子只当它是文件，不往里建目录。
 SMOKE_STATE="$work/data-marker"
@@ -136,7 +142,10 @@ fi
 if [[ -n "$no_upgrade" ]]; then
   :
 elif [[ -z "$upgrade_from" ]]; then
-  upgrade_from="$(git -C "$root" describe --tags --abbrev=0 2>/dev/null || true)"
+  # 多插件仓库的 tag 按目录名分开（<目录名>/v<版本>），只认这家的。
+  describe_match=()
+  [[ "$plugin_rel" == . ]] || describe_match=(--match "$(tag_glob)")
+  upgrade_from="$(git -C "$root" describe --tags --abbrev=0 "${describe_match[@]}" 2>/dev/null || true)"
 else
   git -C "$root" rev-parse -q --verify "refs/tags/$upgrade_from^{commit}" >/dev/null ||
     die "本机没有 tag $upgrade_from"
@@ -155,25 +164,25 @@ chmod -R a+rX "$copy"
 # --bridge-image：只换复制出来的工作区里 bridge 服务的镜像（升级起点的 tag 仍用它自己的清单）。插件没有 bridge 服务时
 # 报错退出：调用方要测的是换过的桥，静默跳过就等于没测。
 if [[ -n "$bridge_image" ]]; then
-  compose_json() { (cd "$copy" && docker compose -f docker-compose.yml config --no-interpolate --format json); }
+  compose_json() { (cd "$SMOKE_PLUGIN" && docker compose -f docker-compose.yml config --no-interpolate --format json); }
   facts="$(compose_json)" || die "解析不了 docker-compose.yml"
   if [[ "$(jq -r '.services.bridge // empty | type' <<<"$facts")" != object ]]; then
     echo "--bridge-image：清单里没有 bridge 服务，换不了桥镜像" >&2
     exit 2
   fi
-  replace_service_image "$copy/docker-compose.yml" bridge "$bridge_image" ||
+  replace_service_image "$SMOKE_PLUGIN/docker-compose.yml" bridge "$bridge_image" ||
     die "--bridge-image：没找到 bridge 服务的 image 行（镜像写在锚点或扩展里时换不了）"
   [[ "$(compose_json | jq -r '.services.bridge.image')" == "$bridge_image" ]] ||
     die "--bridge-image：换完以后 bridge 的镜像不是 $bridge_image"
   say "bridge 服务的镜像换成 $bridge_image"
 fi
 
-probes_facts "$copy"
+probes_facts "$SMOKE_PLUGIN"
 probes_load
 
 # ---------- 1. 装得上 ----------
 say "1. 装得上（check、install、running healthy）"
-chk_out="$(cd "$copy" && nice -n 19 timeout 900 scripts/check.sh 2>&1)" && chk_rc=0 || chk_rc=$?
+chk_out="$(cd "$copy" && WONTON_PLUGIN="$SMOKE_PLUGIN" nice -n 19 timeout 900 scripts/check.sh 2>&1)" && chk_rc=0 || chk_rc=$?
 printf '%s\n' "$chk_out" >>"$LOG"
 chk_first="$(head -1 <<<"$chk_out")"
 if ((chk_rc != 0)); then

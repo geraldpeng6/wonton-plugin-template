@@ -2,7 +2,8 @@
 # 探针套件：准备探针环境、逐项调用 scripts/smoke-probes.sh 的探针并打印 PASS/FAIL/N/A。
 # smoke.sh 和 dev.sh probes 共用这份逻辑，两边都不复制。调用方先设好：
 #   PROBES_LOG     探针输出和失败详情追加到这里，FAIL 行摘录末尾
-#   SMOKE_DIR      工作区目录（跑 scripts/dev.sh、找 smoke-probes.sh 的地方）
+#   SMOKE_DIR      工作区目录（跑 scripts/dev.sh 的地方）
+#   SMOKE_PLUGIN   插件包目录：单插件仓库就是 SMOKE_DIR，多插件仓库是其中 WONTON_PLUGIN 指的子目录
 #   SMOKE_DEV_STATE 开发环境的状态目录（.wonton，里面有 .env），套件自己用，不给插件钩子
 #   SMOKE_STATE    数据标记文件：调用方先建成空文件，data_write 覆盖写、data_check 读（插件钩子只认它是文件）
 #   SMOKE_INSTANCE 实例名
@@ -24,13 +25,15 @@ na() { echo "N/A  $1：$2"; }
 
 # 探针里跑 dev.sh 子命令都走这里：cd 到工作区，指到自己的状态目录和实例。
 probes_dev() {
-  (cd "$SMOKE_DIR" && WONTON_DEV_STATE="$SMOKE_DEV_STATE" WONTON_INSTANCE="$SMOKE_INSTANCE" nice -n 19 scripts/dev.sh "$@")
+  (cd "$SMOKE_DIR" && WONTON_PLUGIN="$SMOKE_PLUGIN" WONTON_DEV_STATE="$SMOKE_DEV_STATE" \
+    WONTON_INSTANCE="$SMOKE_INSTANCE" nice -n 19 scripts/dev.sh "$@")
 }
 
 # 装 tag、reinstall 限时：卡住时如实记 FAIL，不把名额占死。
 probes_dev_t() { # <秒数> <dev.sh 参数…>
   local secs="$1"; shift
-  (cd "$SMOKE_DIR" && WONTON_DEV_STATE="$SMOKE_DEV_STATE" WONTON_INSTANCE="$SMOKE_INSTANCE" nice -n 19 timeout "$secs" scripts/dev.sh "$@")
+  (cd "$SMOKE_DIR" && WONTON_PLUGIN="$SMOKE_PLUGIN" WONTON_DEV_STATE="$SMOKE_DEV_STATE" \
+    WONTON_INSTANCE="$SMOKE_INSTANCE" nice -n 19 timeout "$secs" scripts/dev.sh "$@")
 }
 
 probes_setting() { # 状态目录 .env 里的一项设置
@@ -88,6 +91,16 @@ probes_facts() { # <仓库目录>：清单事实；compose 自己解析，不引
   PROBES_HAS_MCP="$(jq -r 'if ."x-wonton".mcp.service then 1 else 0 end' <<<"$facts")"
 }
 
+# 插件的探针文件：单插件仓库在 scripts/smoke-probes.sh；多插件仓库的套件是共用的，探针跟着插件包放在
+# <插件目录>/smoke-probes.sh。
+probes_file() {
+  if [[ "$SMOKE_PLUGIN" -ef "$SMOKE_DIR" ]]; then
+    echo "$SMOKE_DIR/scripts/smoke-probes.sh"
+  else
+    echo "$SMOKE_PLUGIN/smoke-probes.sh"
+  fi
+}
+
 probes_load() { # 读插件的探针；探针里可用的变量和助手在 probes_env 里备齐
   IDENTITY_NA=0
   DATA_NA=0
@@ -95,9 +108,9 @@ probes_load() { # 读插件的探针；探针里可用的变量和助手在 prob
   MCP_ARGS='{}'
   SMOKE_NOTE=""
   export WONTON_OWNER_EMAIL="${WONTON_OWNER_EMAIL:-$default_owner_email}"
-  if [[ -f "$SMOKE_DIR/scripts/smoke-probes.sh" ]]; then
+  if [[ -f "$(probes_file)" ]]; then
     # shellcheck source=scripts/smoke-probes.sh
-    . "$SMOKE_DIR/scripts/smoke-probes.sh"
+    . "$(probes_file)"
   fi
   DATA_HOOKS=0
   if declare -F data_write >/dev/null && declare -F data_check >/dev/null; then DATA_HOOKS=1; fi
@@ -296,7 +309,7 @@ probes_mcp() { # 工具 Bot 调得到：tools/list 有本插件工具，只读�
     na 工具Bot调得到 "清单没有 mcp"
     return 0
   fi
-  if [[ ! -f "$SMOKE_DIR/scripts/smoke-probes.sh" ]]; then
+  if [[ ! -f "$(probes_file)" ]]; then
     fail 工具Bot调得到 "没写探测：在 scripts/smoke-probes.sh 里写 MCP_TOOL=<只读工具>、MCP_ARGS 和 mcp_assert（标准输入读结果）"
     return 0
   fi
@@ -415,11 +428,11 @@ probes_run() { # [探针名…]：跑探针项，不给名字就全跑
   return 0
 }
 
-# shellcheck disable=SC2154 # root、state、instance 由 dev.sh 加载设置。
+# shellcheck disable=SC2154 # root、plugin、state、instance 由 dev.sh 加载设置。
 probes_cmd() { # dev.sh probes 的入口：对开发环境里装着的工作区插件跑探针，不起新实例、不卸载、不清理
   need jq nice
   need_env
-  probes_facts "$root"
+  probes_facts "$plugin"
   local result
   if ! result="$(api GET "/_wonton/api/plugins/$PROBES_PLUGIN_ID" 2>/dev/null)"; then
     [[ "$result" == *'"not_installed"'* ]] || die "查不到 $PROBES_PLUGIN_ID 装没装：$(error_text "$result")"
@@ -430,6 +443,7 @@ probes_cmd() { # dev.sh probes 的入口：对开发环境里装着的工作区�
   PROBES_LOG="$state/probes.log"
   : >"$PROBES_LOG"
   SMOKE_DIR="$root"
+  SMOKE_PLUGIN="$plugin"
   SMOKE_DEV_STATE="$state"
   # 标记文件跨几次 dev.sh probes 保留：先跑 data_write、改完插件再跑 data_check 也读得到。
   SMOKE_STATE="$state/probes-data-marker"

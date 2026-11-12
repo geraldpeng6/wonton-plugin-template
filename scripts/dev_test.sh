@@ -8,6 +8,11 @@ trap 'rm -rf "$work"' EXIT
 bin="$work/bin"
 state="$work/state"
 mkdir -p "$bin" "$state"
+# 套件复制到一个单插件布局的假仓库里跑：一个仓库放多家插件时根目录没有清单，用例不该跟着仓库布局变。
+repo="$work/repo"
+mkdir -p "$repo"
+cp -R "$root/scripts" "$repo/"
+: >"$repo/docker-compose.yml"
 touch "$state/compose.yaml"
 printf 'WONTON_INSTANCE=test\n' >"$state/.env"
 
@@ -140,8 +145,8 @@ run() {
   local -a env=()
   while [[ "$1" != -- ]]; do env+=("$1"); shift; done
   shift
-  env "${env[@]}" PATH="$bin:$PATH" HOME="$work" WONTON_DEV_STATE="$state" \
-    bash "$root/scripts/dev.sh" "$@" >"$work/out" 2>"$work/err" || status=$?
+  env -u WONTON_PLUGIN "${env[@]}" PATH="$bin:$PATH" HOME="$work" WONTON_DEV_STATE="$state" \
+    bash "$repo/scripts/dev.sh" "$@" >"$work/out" 2>"$work/err" || status=$?
   out="$(cat "$work/out")"
   err="$(cat "$work/err")"
   if [[ $status == "$want" ]]; then return 0; fi
