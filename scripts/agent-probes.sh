@@ -21,6 +21,7 @@
 # 给镜像：WONTON_SMOKE_TUNNEL_CLIENT_IMAGE、WONTON_SMOKE_ECHO_BOT_IMAGE。没给时要手机的子项记 N/A 并写原因。
 # WONTON_SMOKE_CURL_IMAGE 只用来经手机的隧道代理取 Matrix 登录令牌。
 # 要模型回答的子项（模型能回话、经聊天调工具、确认卡片、打断、续聊）要先接模型上游（WONTON_DEV_MODEL_*），没接时记 N/A。
+# 等模型回答默认 240 秒，慢的 Agent 在探针里设 AGENT_WAIT（秒）。
 # 只要 Bot 回了话就算数的（加密私聊、名单外不应答）不要模型：没有模型时 Bot 回的报错也是一条加密回复。
 
 : "${WONTON_SMOKE_CURL_IMAGE:=curlimages/curl:8.23.0}"
@@ -85,7 +86,7 @@ agent_say() {
     --max-time 60 -x http://127.0.0.1:18008 -U "$AGENT_CREDENTIAL" -H "Authorization: Bearer $SMOKE_TOKEN" \
     -X POST "http://$AGENT_HOST:$AGENT_PORT/_wonton/matrix/login-token" | jq -r '.token // empty')"
   [[ -n "$token" ]] || { echo "拿不到用户的 Matrix 登录令牌"; return 1; }
-  timeout "${AGENT_SAY_TIMEOUT:-360}" docker run --rm --network "container:$AGENT_PHONE" \
+  timeout "${AGENT_SAY_TIMEOUT:-$(( ${AGENT_WAIT:-240} + 120 ))}" docker run --rm --network "container:$AGENT_PHONE" \
     "$WONTON_SMOKE_ECHO_BOT_IMAGE" probe --homeserver "http://matrix.$AGENT_HOST:$AGENT_PORT" \
     --proxy "http://$AGENT_CREDENTIAL@127.0.0.1:18008" --login-token "$token" \
     --room "$AGENT_ROOM" --bot "$AGENT_BOT" "$@"
@@ -115,7 +116,7 @@ agent_tail() { tail -c "${2:-200}" <<<"$1" | tr '\n' ' '; }
 agent_check_chat() { # [文字]：首次安装后加密私聊收发
   local out
   agent_need 加密私聊 || return 0
-  if out="$(agent_say --reply any --settle 15 --wait 240 --text "${1:-请用一句话回答：冒烟。}" 2>&1)"; then
+  if out="$(agent_say --reply any --settle 15 --wait "${AGENT_WAIT:-240}" --text "${1:-请用一句话回答：冒烟。}" 2>&1)"; then
     extra_item PASS 加密私聊 "用户的新设备发加密消息，收到 Bot 的加密回复"
   else
     extra_item FAIL 加密私聊 "没收到 Bot 的加密回复：$(agent_tail "$out")"
@@ -127,7 +128,7 @@ agent_check_chat() { # [文字]：首次安装后加密私聊收发
 agent_check_model() {
   local out rc=0
   agent_need 模型能回话 model || return 0
-  out="$(agent_say --reply any --wait 240 --text '请只回答：模型验收通过。' 2>&1)" || rc=$?
+  out="$(agent_say --reply any --wait "${AGENT_WAIT:-240}" --text '请只回答：模型验收通过。' 2>&1)" || rc=$?
   printf '%s\n' "$out"
   if ((rc == 0)) && ! grep -Eiq 'model was not found|couldn.t finish|could not finish|provider-error|⚠️' <<<"$out"; then
     extra_item PASS 模型能回话 "经模型网关回答了（上游模型 ${WONTON_DEV_MODEL:-}）"
@@ -156,11 +157,12 @@ agent_check_mcp_chat() {
   local file bg rc=0
   agent_need MCP工具 model || return 0
   file="$(agent_tmp)"
-  agent_say --reply any --settle 10 --wait 240 \
+  agent_say --reply any --settle 10 --wait "${AGENT_WAIT:-240}" \
     --text '用 wonton__list_plugins 列出已装的插件，输出每项的 id（形如 xxx.yyy.zzz），一个一行，不要解释。' >"$file" 2>&1 &
   bg=$!
   if [[ "${1:-}" == card ]]; then
-    if agent_card_answer approve list_plugins; then
+    if agent_card_answer approve list_plugins >&2; then
+      agent_cards_until "$bg" approve list_plugins >/dev/null
       extra_item PASS MCP工具 "Agent 调 MCP 工具前出了确认卡片，同意了"
     else
       extra_item FAIL MCP工具 "Agent 调 MCP 工具前等不到确认卡片"
@@ -197,6 +199,15 @@ agent_card_answer() {
   return 1
 }
 
+# <进程> 还在跑时一直按 <approve|reject> 回答含 <文字> 的卡片（有的 Agent 一个动作弹好几张）。输出回答了几张。
+agent_cards_until() { # <进程> <approve|reject> <文字>
+  local n=0
+  while kill -0 "$1" 2>/dev/null; do
+    agent_card_answer "$2" "$3" 2 >&2 && n=$((n + 1))
+  done
+  echo "$n"
+}
+
 # 确认卡片：同意一次（命令跑了），拒绝一次（命令没跑）。不给参数时让 Agent 用 shell 跑 echo，看聊天里的输出
 # 和回答。[服务]：这家 Agent 只在写工作区时才问（只读命令不出卡片，如 Codex 的 read-only、Claude Code 的 default），
 # 改成让它在 /workspace 里 touch 一个文件，以那个服务容器里文件在不在为准：模型有时不等执行结果就先回话，
@@ -215,9 +226,10 @@ agent_check_card() {
     ask_no='再用 shell 跑一条命令：echo card-no，然后只说结果。'
   fi
   file="$(agent_tmp)"
-  agent_say --reply any --wait 240 --text "$ask_ok" >"$file" 2>&1 &
+  agent_say --reply any --wait "${AGENT_WAIT:-240}" --text "$ask_ok" >"$file" 2>&1 &
   bg=$!
-  if agent_card_answer approve card-ok; then
+  if agent_card_answer approve card-ok >&2; then
+    agent_cards_until "$bg" approve card-ok >/dev/null
     wait "$bg"
     if agent_card_ran "$container" card-ok "$file"; then
       extra_item PASS 确认卡片 "跑命令前出了确认卡片，同意后命令跑了${svc:+（$svc 里有 card-ok）}"
@@ -231,7 +243,8 @@ agent_check_card() {
   cat "$file"
   agent_say --reply any --wait "$([[ -n "$svc" ]] && echo 30 || echo 240)" --text "$ask_no" >"$file" 2>&1 &
   bg=$!
-  if agent_card_answer reject card-no; then
+  if agent_card_answer reject card-no >&2; then
+    agent_cards_until "$bg" reject card-no >/dev/null
     wait "$bg"
     sleep 5
     if [[ -n "$svc" ]]; then
@@ -272,9 +285,10 @@ agent_check_interrupt() {
   local file bg out rc=0
   agent_need 打断 model || return 0
   file="$(agent_tmp)"
-  agent_say --reply any --wait 240 --text '先用 shell 跑 sleep 45，跑完只回答一句：数完了。' >"$file" 2>&1 &
+  agent_say --reply any --wait "${AGENT_WAIT:-240}" --text '先用 shell 跑 sleep 45，跑完只回答一句：数完了。' >"$file" 2>&1 &
   bg=$!
-  sleep 8
+  # 跑 sleep 也要确认的 Agent 会先弹卡片：4 秒内出了就同意（让它真的跑起来再打断），没出就再等 4 秒。
+  agent_card_answer approve sleep 4 >&2 || sleep 4
   out="$(agent_say --reply any --wait 180 --settle 20 --text '/wonton interrupt 只回答一句：打断好了。' 2>&1)" || rc=$?
   wait "$bg"
   cat "$file"
@@ -320,7 +334,7 @@ agent_check_resume() { # <暗号>
   local out rc=0
   agent_need 续聊 model || return 0
   # 只认含暗号的那条：桥的提示（如话题冲突）可能抢在模型的回答前到。
-  out="$(agent_say --reply any --match "$1" --wait 240 --text '我们第一次说话时留的暗号是什么？只回答暗号。' 2>&1)" || rc=$?
+  out="$(agent_say --reply any --match "$1" --wait "${AGENT_WAIT:-240}" --text '我们第一次说话时留的暗号是什么？只回答暗号。' 2>&1)" || rc=$?
   printf '%s\n' "$out"
   if ((rc == 0)) && grep -qF "$1" <<<"$out"; then
     extra_item PASS 续聊 "同一个会话记得第一条消息里的暗号"
@@ -458,7 +472,7 @@ agent_check_outsider() {
   sleep 10
   expect="名单内通过"
   [[ -n "${WONTON_DEV_MODEL_BASE_URL:-}" ]] || expect=""
-  out="$(agent_say --reply any --settle 15 --wait 240 --mention "$AGENT_BOT" \
+  out="$(agent_say --reply any --settle 15 --wait "${AGENT_WAIT:-240}" --mention "$AGENT_BOT" \
     --text '同一个房间里的对照：请只回答 名单内通过' 2>&1)" || rc=$?
   printf '%s\n' "$out"
   if ((rc == 0)) && grep -qF "$expect" <<<"$out"; then
