@@ -216,8 +216,9 @@ agent_check_mcp_chat() {
     --text '用 wonton__list_plugins 列出已装的插件，输出每项的 id（形如 xxx.yyy.zzz），一个一行，不要解释。' >"$file" 2>&1 &
   bg=$!
   if [[ "${1:-}" == card ]]; then
-    if agent_card_answer approve list_plugins >&2; then
-      agent_cards_until "$bg" approve list_plugins >/dev/null
+    # 卡片标题不一定带工具名，按任意一张卡等（前面的积压已由等待门消化掉）。
+    if agent_card_answer approve '' >&2; then
+      agent_cards_until "$bg" approve '' >/dev/null
       extra_item PASS MCP工具 "Agent 调 MCP 工具前出了确认卡片，同意了"
     else
       extra_item FAIL MCP工具 "Agent 调 MCP 工具前等不到确认卡片"
@@ -233,11 +234,18 @@ agent_check_mcp_chat() {
   rm -f "$file"
 }
 
-# 等一张标题、说明或参数里含 <文字> 的确认卡片，按 <approve|reject> 回答，最多等 [秒数]（默认 AGENT_CARD_WAIT 或 120 秒）；卡片没出现返回 1。
+# 等一张标题、说明或参数里含 <文字>（空 = 任意一张）的确认卡片，按 <approve|reject> 回答；卡片没出现返回 1。
+# [秒数]（默认 AGENT_CARD_WAIT 或 120）是 Bot 安静多久才放弃：它还在发消息就一直等，另受 AGENT_CARD_MAX（默认
+# 1800 秒）的绝对上限兜底。后台积压几分钟才轮到的 Agent 靠这个不丢卡片窗口。
 # 选项带 choice_id 的（ACP 的权限卡）要把那个选项自己的 answer 和 choice_id 一起发回去。
 agent_card_answer() {
-  local want="$1" needle="$2" list id body
-  for _ in $(seq 1 "${3:-${AGENT_CARD_WAIT:-120}}"); do
+  local want="$1" needle="$2" seconds="${3:-${AGENT_CARD_WAIT:-120}}" max="${AGENT_CARD_MAX:-1800}"
+  local list id body owner room_url start now idle=0 tick=0 last_ts=0 ts
+  start="$(date +%s)"
+  # Bot 还在发消息（后台积压没消化完）就一直等：限时按它安静多久算，不看墙上时钟；绝对上限兜底。
+  owner="$(agent_owner_token)" || owner=""
+  room_url="$(jq -rn --arg r "$AGENT_ROOM" '$r | @uri')"
+  while :; do
     list="$(smoke_api GET /_wonton/api/confirmations 2>/dev/null)" || list='{}'
     id="$(jq -r --arg n "$needle" '[.confirmations[]? | select(((.title // "") + " " + (.description // "") + " "
       + ((.arguments // {}) | tostring)) | contains($n)) | .id][0] // empty' <<<"$list")"
@@ -249,9 +257,20 @@ agent_card_answer() {
       smoke_api POST "/_wonton/confirmations/$id" -H 'Content-Type: application/json' -d "$body"
       return
     fi
+    now="$(date +%s)"
+    ((now - start < max)) || return 1
+    if [[ -n "$owner" ]] && ((tick % 2 == 0)); then
+      ts="$(agent_last_bot_ts "$owner" "$room_url")"
+      if [[ -n "$ts" ]] && ((ts > last_ts)); then
+        last_ts="$ts"
+        idle=0
+      fi
+    fi
+    tick=$((tick + 1))
     sleep 1
+    idle=$((idle + 1))
+    ((idle <= seconds)) || return 1
   done
-  return 1
 }
 
 # <进程> 还在跑时一直按 <approve|reject> 回答含 <文字> 的卡片（有的 Agent 一个动作弹好几张）。输出回答了几张。
