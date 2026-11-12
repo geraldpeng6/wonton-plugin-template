@@ -2,8 +2,24 @@
 # shellcheck shell=bash
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# 一个仓库放多家插件（如 agents/<名>/ 各是一个插件包）时，套件在仓库根的 scripts/，WONTON_PLUGIN 指到插件包目录
+# （相对仓库根）；不设就是仓库根。plugin_rel 是相对路径，单插件仓库是“.”。
+plugin="${WONTON_PLUGIN:-.}"
+[[ "$plugin" == /* ]] || plugin="$root/${plugin#./}"
+plugin="${plugin%/}"
+plugin="${plugin%/.}"
+if [[ "$plugin" == "$root" ]]; then
+  plugin_rel="."
+elif [[ "$plugin" == "$root"/* ]]; then
+  plugin_rel="${plugin#"$root"/}"
+else
+  echo "WONTON_PLUGIN 要在仓库里面：$plugin" >&2
+  exit 1
+fi
 # 开发环境：compose 文件、密钥、数据，都不提交（.gitignore）。WONTON_DEV_STATE 换一份目录（冒烟、路径太长时，见 dev.sh）。
+# 多插件仓库按插件分开放（.wonton/<目录名，/ 换成 ->），同一条检出可以同时起几家的开发环境。
 state="${WONTON_DEV_STATE:-$root/.wonton}"
+[[ "$plugin_rel" == . || -n "${WONTON_DEV_STATE:-}" ]] || state="$root/.wonton/${plugin_rel//\//-}"
 env_file="$state/.env"
 # 没有开发环境时，检查和打包用这个核心镜像：main 每次合并都会更新，插件跟着主干的规范走，不等发版。
 default_image="ghcr.io/wontonapp/wonton-core:main"
@@ -100,10 +116,27 @@ running_container() {
   grep -x -m1 -E "$1(--[a-z0-9-]+)?" <<<"$names"
 }
 
+# 插件包目录里要有清单：单插件仓库的根目录，或 WONTON_PLUGIN 指的子目录。
+need_plugin() {
+  [[ -f "$plugin/docker-compose.yml" ]] ||
+    die "没有 $plugin_rel/docker-compose.yml：一个仓库放多家插件时用 WONTON_PLUGIN 指到插件目录，如 WONTON_PLUGIN=agents/<名>"
+}
+
+# 插件包在某个 git 引用里的树：单插件仓库是引用本身，多插件仓库是 <引用>:<插件目录>（给 git archive 用）。
+plugin_tree() {
+  if [[ "$plugin_rel" == . ]]; then printf '%s\n' "$1"; else printf '%s:%s\n' "$1" "$plugin_rel"; fi
+}
+
+# 版本 tag 的写法：单插件仓库是 v<版本>，多插件仓库按目录名分开，是 <目录名>/v<版本>。
+tag_glob() {
+  if [[ "$plugin_rel" == . ]]; then echo 'v*'; else echo "${plugin_rel##*/}/v*"; fi
+}
+
 # `plugin check` 输出里的「插件 <ID> <版本>」行去掉前缀。核心 4cdfe16 前后会先打一行 tracing
 # （图片助手启动），清单行不再固定是第一行：在全部输出里找。
 manifest_line() {
-  { in_core "$root" plugin check /plugin 2>/dev/null || true; } | sed -n 's/^插件 //p' | head -1
+  need_plugin
+  { in_core "$plugin" plugin check /plugin 2>/dev/null || true; } | sed -n 's/^插件 //p' | head -1
 }
 
 plugin_id() {
