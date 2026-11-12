@@ -12,7 +12,7 @@
 #   probes_facts <目录>   解析清单，备好 PROBES_PLUGIN_ID/SLUG/HAS_WEBUI/SSO/HAS_MCP（原文在 PROBES_FACTS）
 #   probes_load           读插件的 smoke-probes.sh（没有这个文件时，后面按“没写探测”处理）
 #   probes_env            实例起来以后调用：备好 SMOKE_* 变量和 dweb/web_get/mcp/smoke_api 助手
-#   probes_run [探针名…]  跑 web_assert / identity_check / mcp / data_write / data_check 各项，不给名字就全跑
+#   probes_run [探针名…]  跑 web_assert / identity_check / mcp / extra_check / data_write / data_check 各项，不给名字就全跑
 # 有 FAIL 时 DID_FAIL=1，退出码由调用方定；这里的函数不 exit，停不停由调用方决定。
 # 数据探针 data_write / data_check：插件不存用户数据时写 DATA_NA=1（两项记 N/A）。
 DID_FAIL=0
@@ -349,22 +349,36 @@ probes_mcp() { # 工具 Bot 调得到：tools/list 有本插件工具，只读�
   fi
 }
 
+probes_extra() { # 附加检查：六项之外插件自己要验的（发通知、经网关真调一次模型等），探针写了 extra_check 才有这一项
+  local before out
+  declare -F extra_check >/dev/null || return 0
+  say "附加检查（extra_check）"
+  before="$(wc -c <"$PROBES_LOG")"
+  if probes_hook extra_check 600; then
+    out="$(tail -c "+$((before + 1))" "$PROBES_LOG" | tail -c 200 | tr '\n' ' ')"
+    pass 附加检查 "extra_check 通过${out:+：$out}"
+  else
+    fail 附加检查 "extra_check 失败，见 $PROBES_LOG 末尾：$(tail -c 200 "$PROBES_LOG" | tr '\n' ' ')"
+  fi
+}
+
 probes_run() { # [探针名…]：跑探针项，不给名字就全跑
-  local name web=0 identity=0 mcp=0 data_write=0 data_check=0
+  local name web=0 identity=0 mcp=0 extra=0 data_write=0 data_check=0
   for name in "$@"; do
     case "$name" in
-      web_assert | identity_check | mcp | data_write | data_check) ;;
-      *) die "不认识的探针名：$name（可选 web_assert、identity_check、mcp、data_write、data_check）" ;;
+      web_assert | identity_check | mcp | extra_check | data_write | data_check) ;;
+      *) die "不认识的探针名：$name（可选 web_assert、identity_check、mcp、extra_check、data_write、data_check）" ;;
     esac
   done
   if (($# == 0)); then
-    web=1 identity=1 mcp=1 data_write=1 data_check=1
+    web=1 identity=1 mcp=1 extra=1 data_write=1 data_check=1
   else
     for name in "$@"; do
       case "$name" in
         web_assert) web=1 ;;
         identity_check) identity=1 ;;
         mcp) mcp=1 ;;
+        extra_check) extra=1 ;;
         data_write) data_write=1 ;;
         data_check) data_check=1 ;;
       esac
@@ -384,6 +398,7 @@ probes_run() { # [探针名…]：跑探针项，不给名字就全跑
     say "4. 工具 Bot 调得到"
     probes_mcp
   fi
+  ((extra)) && probes_extra
   if ((data_write || data_check)); then
     say "5. 数据写入与读回"
     if [[ "$DATA_NA" == 1 ]]; then

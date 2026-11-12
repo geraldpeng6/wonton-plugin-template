@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 插件合并前的端到端冒烟：用工作区的插件起一套一次性开发环境，六项真实请求，不用 mock。
-#   scripts/dev.sh smoke [--upgrade-from <tag>]
-# 六项：装得上 / 网页打得开 / 用户身份能用 / 工具 Bot 调得到 / 升级保数据 / 重装保数据。任何 FAIL 退出非 0。
+#   scripts/dev.sh smoke [--upgrade-from <tag> | --no-upgrade <原因>] [--bridge-image <镜像>]
+# 六项：装得上 / 网页打得开 / 用户身份能用 / 工具 Bot 调得到 / 升级保数据 / 重装保数据；探针写了 extra_check 时另有一项附加检查。任何 FAIL 退出非 0。
 # 插件自己的探测在 scripts/smoke-probes.sh，写法见模板里的这个文件。
 # 作者已有的 .wonton 不动：整个工作区复制到临时目录，用冒烟自己的实例，跑完删掉容器、网络、卷和目录。
 # 输入变量、输出格式和退出码是和正式冒烟共用的约定，见模板仓库的 docs/smoke.md。
@@ -18,12 +18,17 @@ set -uo pipefail
 
 usage() { sed -n '2,4p' "$0" >&2; exit 2; }
 upgrade_from=""
+no_upgrade=""
+bridge_image=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --upgrade-from) [[ $# -ge 2 && -n "$2" ]] || usage; upgrade_from="$2"; shift 2 ;;
+    --no-upgrade) [[ $# -ge 2 && -n "$2" ]] || usage; no_upgrade="$2"; shift 2 ;;
+    --bridge-image) [[ $# -ge 2 && -n "$2" ]] || usage; bridge_image="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
+[[ -z "$upgrade_from" || -z "$no_upgrade" ]] || usage
 
 for tool in docker curl jq python3 timeout nice flock git; do
   need "$tool"
@@ -127,8 +132,10 @@ if [[ -n "${WONTON_SMOKE_MAX_STACKS:-}" ]]; then
   done
 fi
 
-# 升级验证的起点：--upgrade-from 指定的 tag，或 git describe 到的最近 tag；没有 tag 就不测升级。
-if [[ -z "$upgrade_from" ]]; then
+# 升级验证的起点：--upgrade-from 指定的 tag，或 git describe 到的最近 tag；没有 tag 或给了 --no-upgrade 就不测升级。
+if [[ -n "$no_upgrade" ]]; then
+  :
+elif [[ -z "$upgrade_from" ]]; then
   upgrade_from="$(git -C "$root" describe --tags --abbrev=0 2>/dev/null || true)"
 else
   git -C "$root" rev-parse -q --verify "refs/tags/$upgrade_from^{commit}" >/dev/null ||
@@ -144,6 +151,22 @@ tar -C "$root" --exclude=.wonton --exclude=.git -cf - . | tar -C "$copy" -xf - |
 # dev.sh 从复制出来的工作区里 git archive 出 tag：.git 用符号链接指回原仓库，不复制对象。
 [[ ! -d "$root/.git" ]] || ln -s "$root/.git" "$copy/.git"
 chmod -R a+rX "$copy"
+
+# --bridge-image：只换复制出来的工作区里 bridge 服务的镜像（升级起点的 tag 仍用它自己的清单）。插件没有 bridge 服务时
+# 报错退出：调用方要测的是换过的桥，静默跳过就等于没测。
+if [[ -n "$bridge_image" ]]; then
+  compose_json() { (cd "$copy" && docker compose -f docker-compose.yml config --no-interpolate --format json); }
+  facts="$(compose_json)" || die "解析不了 docker-compose.yml"
+  if [[ "$(jq -r '.services.bridge // empty | type' <<<"$facts")" != object ]]; then
+    echo "--bridge-image：清单里没有 bridge 服务，换不了桥镜像" >&2
+    exit 2
+  fi
+  replace_service_image "$copy/docker-compose.yml" bridge "$bridge_image" ||
+    die "--bridge-image：没找到 bridge 服务的 image 行（镜像写在锚点或扩展里时换不了）"
+  [[ "$(compose_json | jq -r '.services.bridge.image')" == "$bridge_image" ]] ||
+    die "--bridge-image：换完以后 bridge 的镜像不是 $bridge_image"
+  say "bridge 服务的镜像换成 $bridge_image"
+fi
 
 probes_facts "$copy"
 probes_load
@@ -239,7 +262,7 @@ else
 fi
 
 # 探针部分：网页打得开、用户身份能用、工具 Bot 调得到，和 dev.sh probes 共用。
-probes_run web_assert identity_check mcp
+probes_run web_assert identity_check mcp extra_check
 
 # ---------- 5/6. 升级/重装保数据 ----------
 say "5/6. 升级保数据、重装保数据"
@@ -252,6 +275,8 @@ elif (( DATA_HOOKS == 0 )); then
 else
   if [[ -n "$upgrade_from" && "$data_upgrade_base" == 1 && "$data_wrote" == 1 ]]; then
     probes_data_check 升级保数据 "升级自 tag $upgrade_from"
+  elif [[ -n "$no_upgrade" ]]; then
+    na 升级保数据 "$no_upgrade（调用方给了 --no-upgrade），只测重装"
   elif [[ -z "$upgrade_from" ]]; then
     na 升级保数据 "本仓库没有 tag，只测重装（可用 --upgrade-from 指定）"
   fi
