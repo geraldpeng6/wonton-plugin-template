@@ -240,8 +240,9 @@ agent_check_mcp_chat() {
 # 选项带 choice_id 的（ACP 的权限卡）要把那个选项自己的 answer 和 choice_id 一起发回去。
 agent_card_answer() {
   local want="$1" needle="$2" seconds="${3:-${AGENT_CARD_WAIT:-120}}" max="${AGENT_CARD_MAX:-1800}"
-  local list id body owner room_url start now idle=0 tick=0 last_ts=0 ts
+  local list id body owner room_url start now idle=0 tick=0 last_ts=0 ts want_kind
   start="$(date +%s)"
+  [[ "$want" == reject ]] && want_kind=reject_once || want_kind=allow_once
   # Bot 还在发消息（后台积压没消化完）就一直等：限时按它安静多久算，不看墙上时钟；绝对上限兜底。
   owner="$(agent_owner_token)" || owner=""
   room_url="$(jq -rn --arg r "$AGENT_ROOM" '$r | @uri')"
@@ -250,15 +251,21 @@ agent_card_answer() {
     id="$(jq -r --arg n "$needle" '[.confirmations[]? | select(((.title // "") + " " + (.description // "") + " "
       + ((.arguments // {}) | tostring)) | contains($n)) | .id][0] // empty' <<<"$list")"
     if [[ -n "$id" ]]; then
-      body="$(jq -c --arg id "$id" --arg a "$want" '[.confirmations[] | select(.id == $id) | .choices[]?
-        | select(((.answer // .kind) // "") | startswith($a))][0] // {} | {answer: (.answer // $a)}
-        + (if .choice_id then {choice_id} else {} end)' <<<"$list")"
+      # 优先“这一次”的选项：第一项常是“总是允许”，一直点会让后面的用例不再出卡片。
+      body="$(jq -c --arg id "$id" --arg a "$want" --arg k "$want_kind"         '([.confirmations[] | select(.id == $id) | .choices[]? | select(.kind == $k)][0]
+          // [.confirmations[] | select(.id == $id) | .choices[]?
+            | select(((.answer // .kind) // "") | startswith($a))][0] // {})
+        | {answer: (.answer // $a)} + (if .choice_id then {choice_id} else {} end)' <<<"$list")"
       echo "卡片 $id（$(jq -r --arg i "$id" '[.confirmations[] | select(.id == $i) | .title][0] // ""' <<<"$list")）：回答 $body"
       smoke_api POST "/_wonton/confirmations/$id" -H 'Content-Type: application/json' -d "$body"
       return
     fi
     now="$(date +%s)"
-    ((now - start < max)) || return 1
+    if ((now - start >= max)); then
+      list="$(smoke_api GET /_wonton/api/confirmations 2>/dev/null)" || list='{}'
+      echo "等卡片超过 ${max} 秒，还挂着：$(jq -r '[.confirmations[]? | "\(.id[:8] // "") \(.title // "")"] | join("；")' <<<"$list")"
+      return 1
+    fi
     if [[ -n "$owner" ]] && ((tick % 2 == 0)); then
       ts="$(agent_last_bot_ts "$owner" "$room_url")"
       if [[ -n "$ts" ]] && ((ts > last_ts)); then
@@ -269,7 +276,11 @@ agent_card_answer() {
     tick=$((tick + 1))
     sleep 1
     idle=$((idle + 1))
-    ((idle <= seconds)) || return 1
+    if ((idle > seconds)); then
+      list="$(smoke_api GET /_wonton/api/confirmations 2>/dev/null)" || list='{}'
+      echo "Bot 安静超过 ${seconds} 秒，还挂着：$(jq -r '[.confirmations[]? | "\(.id[:8] // "") \(.title // "")"] | join("；")' <<<"$list")"
+      return 1
+    fi
   done
 }
 
@@ -289,7 +300,9 @@ agent_card_take() {
   # 只取有选项的卡片：提问类卡片没有选项，用 approve 答不了，会一直挂在列表里。
   id="$(jq -r '[.confirmations[]? | select(((.choices // []) | length) > 0) | .id][0] // empty' <<<"$list")"
   [[ -n "$id" ]] || return 1
-  body="$(jq -c --arg id "$id" '[.confirmations[] | select(.id == $id) | .choices[]?][0] // {}
+  # 优先“这一次”：第一项常是“总是允许”，一直点会让后面的用例不再出卡片。
+  body="$(jq -c --arg id "$id" '[.confirmations[] | select(.id == $id)][0] as $c
+    | ([$c.choices[]? | select(.kind == "allow_once")][0] // [$c.choices[]?][0] // {})
     | {answer: (.answer // "approve")} + (if .choice_id then {choice_id} else {} end)' <<<"$list")"
   echo "等上一轮结束时同意一张卡片 $id：$body"
   if ! out="$(smoke_api POST "/_wonton/confirmations/$id" -H 'Content-Type: application/json' -d "$body" 2>&1)"; then
