@@ -5,6 +5,7 @@
 #   scripts/dev.sh up                         起开发环境，等到都健康；再执行一次就是拉最新的核心镜像重启
 #   scripts/dev.sh install [--yes] [<引用>]   预览后安装插件：默认装工作区里的，给了 git 引用（tag、分支、提交）就装那个版本
 #   scripts/dev.sh reinstall [--yes]          卸载（保留数据）再装上工作区里的：改了插件包以后用
+#   scripts/dev.sh upgrade [--yes] [<引用>]   升级已装的插件：换容器不吊销 Bot 的设备，数据和密钥都留着
 #   scripts/dev.sh rebuild                    强制重建核心栈，再保数据重装工作区插件；其他插件容器不重建
 #   scripts/dev.sh uninstall [--purge]        卸载；--purge 连插件的数据一起删
 #   scripts/dev.sh status                     开发环境的服务和装着的插件
@@ -374,6 +375,44 @@ reinstall() {
     die "查不到 $id 装没装：$(error_text "$result")"
   fi
   install_plugin $yes
+}
+
+# 升级已装的插件：走核心的升级接口，数据和 Bot 的 Matrix 设备都保留（reinstall 是卸载再装，会吊销 Bot 设备，
+# Bot 就读不到旧房间的加密历史了）。
+upgrade() {
+  local yes="" ref="" dir="$root" arg id preview grants result answer
+  for arg in "$@"; do
+    case "$arg" in
+      --yes) yes=1 ;;
+      -*) usage ;;
+      *) [[ -z "$ref" ]] || usage; ref="$arg" ;;
+    esac
+  done
+  need_env
+  id="$(plugin_id)"
+  # 放在 .wonton/ 里：Docker Desktop 一定能挂载仓库下面的目录。退出时才删，所以 tmp 不是局部变量。
+  tmp="$(mktemp -d "$state/tmp.XXXXXX")"
+  trap 'rm -rf "$tmp"' EXIT
+  if [[ -n "$ref" ]]; then
+    mkdir "$tmp/src"
+    git -C "$root" archive "$ref" | tar -x -C "$tmp/src" || die "导不出 $ref（git archive 失败）"
+    dir="$tmp/src"
+  fi
+  in_core "$dir" plugin pack /plugin >"$tmp/package.tar" || die "打包失败，原因见上面"
+  preview="$(api POST "/_wonton/api/plugins/$id/upgrade/preview" -H 'Content-Type: application/x-tar' --data-binary @"$tmp/package.tar")" ||
+    die "预览失败：$(error_text "$preview")"
+  grants="$(show_preview "$preview")" || exit 1
+  if [[ -z "$yes" ]]; then
+    read -r -p "确认升级？[y/N] " answer
+    [[ "$answer" == [yY] ]] || die "没升"
+  fi
+  result="$(api POST "/_wonton/api/plugins/$id/upgrade?grant=$grants" -H 'Content-Type: application/x-tar' --data-binary @"$tmp/package.tar")" ||
+    die "升级失败：$(error_text "$result")"
+  python3 - "$result" <<'PY'
+import json, sys
+p = json.loads(sys.argv[1])["plugin"]
+print(f"升级好了：{p['title']} {p['version']}" + (f"，网页 {p['web_url']}" if p.get("web_url") else ""))
+PY
 }
 
 rebuild() {
@@ -770,6 +809,7 @@ case "${1:-}" in
   up) up ;;
   install) install_plugin "${@:2}" ;;
   reinstall) reinstall "${@:2}" ;;
+  upgrade) upgrade "${@:2}" ;;
   rebuild) rebuild "${@:2}" ;;
   uninstall) uninstall_plugin "${@:2}" ;;
   status) status ;;
