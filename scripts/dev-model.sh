@@ -24,6 +24,7 @@ model_upstream() {
     url="${url/host.docker.internal/$gateway}"
   fi
   # 核心先用这个模型发一次真实请求再保存：key 被拒、模型不存在会如实报错；连不上时网关照样保存，核心报连不上。
+  # 网关不收同一地址和 key 的第二条服务商（magpie 实测），换模型重试前要在“模型设置”里删掉上一次存下的。
   result="$(python3 - "$url" "$model" "$key_file" <<'PY' |
 import json, sys
 
