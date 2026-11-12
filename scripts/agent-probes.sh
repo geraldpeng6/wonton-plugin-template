@@ -420,6 +420,8 @@ agent_matrix() {
 
 # 名单外不应答：Bot 只听名单里的人。名单外的临时用户在主房间里发一条，30 秒内 Bot 不许回；踢掉他以后用户在
 # 同一个房间发一条，Bot 必须回：说明 Bot 在收这个房间的消息，前一条是看到了不答，不是没在跑。
+# [silent]：只断言名单外的人得不到回答，不做踢人后的对照（有的桥在有人进出房间后换 Megolm 会话，之后新登录的
+# 探针设备解不开回话；“Bot 在听且会回用户”由别的子项承担）。
 # 临时用户用 Matrix 服务器的注册共享密钥建；邀请、踢人、读消息用用户本人的身份（管理接口代登录，用完退出），
 # 不碰 Bot 的令牌。
 agent_check_outsider() {
@@ -467,6 +469,10 @@ agent_check_outsider() {
   agent_matrix "$owner_token" POST /_matrix/client/v3/logout '{}' >/dev/null
   if [[ "$seen" != 0 ]]; then
     extra_item FAIL 名单外不应答 "名单外的人（$outsider）发消息后 Bot 回了 ${seen:-?} 条"
+    return 0
+  fi
+  if [[ "${1:-}" == silent ]]; then
+    extra_item PASS 名单外不应答 "名单外的人发消息 30 秒没有回答（不做同一房间的对照）"
     return 0
   fi
   sleep 10
