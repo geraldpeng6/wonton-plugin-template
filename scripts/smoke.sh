@@ -4,9 +4,11 @@
 # 六项：装得上 / 网页打得开 / 用户身份能用 / 工具 Bot 调得到 / 升级保数据 / 重装保数据。任何 FAIL 退出非 0。
 # 插件自己的探测在 scripts/smoke-probes.sh，写法见模板里的这个文件。
 # 作者已有的 .wonton 不动：整个工作区复制到临时目录，用冒烟自己的实例，跑完删掉容器、网络、卷和目录。
+# 输入变量、输出格式和退出码是和正式冒烟共用的约定，见模板仓库的 docs/smoke.md。
 #
 # --upgrade-from：从哪个 tag 升级验证数据；默认取 git describe 到的最近 tag，本仓库没有 tag 时“升级保数据”记 N/A。
 # WONTON_DEV_EGRESS_PROXY：给了就先把它配成核心的出口代理（插件冷启动要出网时用），不给就不配。
+# WONTON_SMOKE_TMPDIR：临时目录放在哪（默认 /tmp）；/tmp 是内存盘的主机换到磁盘上，路径越短越好（见下面的 107 字节）。
 set -uo pipefail
 # shellcheck source=scripts/lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -27,6 +29,12 @@ for tool in docker curl jq python3 timeout nice flock git; do
   need "$tool"
 done
 
+# 冒烟只访问本机网关和栈内地址：主机为了上外网导出了代理变量时，这些请求被代理截走会回 502。
+# 套件自己的 curl 都带 --noproxy；这里兜住探针里没带的。
+for name in no_proxy NO_PROXY; do
+  export "$name=${!name:+${!name},}localhost,127.0.0.1,::1,.localhost,wonton.internal,.wonton.internal"
+done
+
 mkdir -p "$root/.wonton"
 exec 9>"$root/.wonton/smoke.lock"
 flock -n 9 || die "同一仓库的另一套冒烟正在跑"
@@ -34,7 +42,10 @@ flock -n 9 || die "同一仓库的另一套冒烟正在跑"
 # 状态目录放短路径：宿主网络插件的中继套接字在 <状态>/data/apps/<插件 id 把 . 换成 ->/relay/webui.sock，unix 套接字
 # 路径最多 107 字节。/tmp/ws.XXXXXX/s 是 16 字节，id 最长 63 时正好 107。不用 TMPDIR：macOS 的 TMPDIR 在
 # /var/folders/… 下，本身就有 40 多字节。
-work="$(mktemp -d /tmp/ws.XXXXXX)"
+# 换了 WONTON_SMOKE_TMPDIR 时每多一个字节，插件 id 能用的长度就少一个字节。
+tmp_root="${WONTON_SMOKE_TMPDIR:-/tmp}"
+[[ -d "$tmp_root" ]] || die "WONTON_SMOKE_TMPDIR 不是目录：$tmp_root"
+work="$(mktemp -d "${tmp_root%/}/ws.XXXXXX")"
 copy="$work/repo"
 LOG="$root/.wonton/smoke.log"
 : >"$LOG"

@@ -7,6 +7,14 @@ state="${WONTON_DEV_STATE:-$root/.wonton}"
 env_file="$state/.env"
 # 没有开发环境时，检查和打包用这个核心镜像：main 每次合并都会更新，插件跟着主干的规范走，不等发版。
 default_image="ghcr.io/wontonapp/wonton-core:main"
+# 用户邮箱默认用核心内部邮件的地址：应用发给用户的信只有收件人是 <用户名>@wonton.internal 时才进得了核心的信箱，
+# 写成按实例域名拼的地址会被拒收。
+# shellcheck disable=SC2034 # dev.sh、probes.sh 用
+default_owner_email="owner@wonton.internal"
+# 走登录跳转时用浏览器同款的 Accept：按内容协商的 OIDC 入口（如 JAX-RS 端点）只认 text/html 时会回 406，
+# 真实浏览器带 */* 不受影响。
+# shellcheck disable=SC2034 # dev.sh 用
+browser_accept='text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
 
 die() {
   echo "$*" >&2

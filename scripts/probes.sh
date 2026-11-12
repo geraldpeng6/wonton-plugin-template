@@ -94,7 +94,7 @@ probes_load() { # 读插件的探针；探针里可用的变量和助手在 prob
   MCP_TOOL=""
   MCP_ARGS='{}'
   SMOKE_NOTE=""
-  export WONTON_OWNER_EMAIL="${WONTON_OWNER_EMAIL:-owner@$(probes_domain)}"
+  export WONTON_OWNER_EMAIL="${WONTON_OWNER_EMAIL:-$default_owner_email}"
   if [[ -f "$SMOKE_DIR/scripts/smoke-probes.sh" ]]; then
     # shellcheck source=scripts/smoke-probes.sh
     . "$SMOKE_DIR/scripts/smoke-probes.sh"
