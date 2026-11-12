@@ -102,7 +102,7 @@ first_settings() {
   source="${WONTON_CORE_IMAGE:-$default_image}"
   pull="${WONTON_PULL:-}"
   domain="${WONTON_DEV_DOMAIN:-$instance.wonton.localhost}"
-  owner_email="${WONTON_OWNER_EMAIL:-owner@$domain}"
+  owner_email="${WONTON_OWNER_EMAIL:-$default_owner_email}"
 }
 
 # 核心的基础域名，不是实例名：实例名只是资源名前缀。别的栈写 .wonton/.env 的 WONTON_BASE_DOMAIN；从主仓库抄成
@@ -117,7 +117,7 @@ load_settings() {
   source="$(setting WONTON_CORE_SOURCE)"
   pull="${WONTON_PULL:-$(setting WONTON_PULL)}"
   owner_email="$(setting WONTON_OWNER_EMAIL)"
-  [[ -n "$owner_email" ]] || owner_email="owner@$domain"
+  [[ -n "$owner_email" ]] || owner_email="$default_owner_email"
 }
 
 write_settings() {
@@ -517,13 +517,13 @@ sso_form_login() {
     page_file="$(mktemp)"
     if [[ "$method" == GET ]]; then
       effective="$(curl_t "$SMOKE_WEB_MAX_TIME" "$request_url" --noproxy '*' -L -b "$jar" -c "$jar" \
-        -H 'Accept: text/html' -o "$page_file" -w '%{url_effective}')" || {
+        -H "Accept: $browser_accept" -o "$page_file" -w '%{url_effective}')" || {
         rm -f "$page_file"
         die "读取 SSO 页面失败（$request_url）"
       }
     else
       effective="$(curl_t "$SMOKE_WEB_MAX_TIME" "$request_url" --noproxy '*' -L -b "$jar" -c "$jar" \
-        -H 'Accept: text/html' -o "$page_file" -w '%{url_effective}' \
+        -H "Accept: $browser_accept" -o "$page_file" -w '%{url_effective}' \
         --data "$data")" || {
         rm -f "$page_file"
         die "提交 SSO 表单失败（$request_url）"
@@ -597,7 +597,7 @@ session_into() {
   if [[ -n "$sso" ]]; then
     sso_form_login "$jar" "$entry"
   else
-    curl_t "$SMOKE_WEB_MAX_TIME" "$entry" --noproxy '*' -o /dev/null -L -b "$jar" -c "$jar" -H 'Accept: text/html' ||
+    curl_t "$SMOKE_WEB_MAX_TIME" "$entry" --noproxy '*' -o /dev/null -L -b "$jar" -c "$jar" -H "Accept: $browser_accept" ||
       die "走不通插件网页的登录跳转（GET $entry）"
   fi
 }
