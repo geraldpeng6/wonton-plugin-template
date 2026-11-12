@@ -22,6 +22,7 @@
 | `WONTON_PULL` | `never`：用本机已有的核心镜像，不拉取 | 每次起栈先拉取 |
 | `WONTON_DEV_CORE_SUBNET` | 核心网络用的子网（如 `192.0.2.0/24`），几套栈共用一台 Docker 时不占默认地址池 | Docker 分配 |
 | `WONTON_DEV_EGRESS_PROXY` | 装插件之前先把它配成核心的出口代理 | 不配出口代理 |
+| `WONTON_DEV_MODEL_BASE_URL`、`WONTON_DEV_MODEL`、`WONTON_DEV_MODEL_KEY_FILE` | 插件申请了 `models` 时，把这个 OpenAI 兼容的上游接进冒烟实例的模型网关（同 `dev.sh model`）；给了地址就三个都要给，key 只从文件读 | 网关里没有模型 |
 | `WONTON_OWNER_EMAIL` | 用户邮箱 | `owner@wonton.internal`（核心内部邮件收得到的地址） |
 | `WONTON_SMOKE_TMPDIR` | 一次性工作区和实例数据放在哪；路径越短越好，宿主网络插件的 unix 套接字路径上限是 107 字节 | `/tmp` |
 | `WONTON_SMOKE_MAX_STACKS`、`WONTON_SMOKE_WAIT_MINUTES` | 这台 Docker 上别人的验证栈达到这个数时排队，最多等多少分钟 | 不排队 |

@@ -1,6 +1,7 @@
 scripts/dev.sh
 scripts/dev-diag.sh
 scripts/dev-mcp.sh
+scripts/dev-model.sh
 scripts/dev-resources.sh
 scripts/dev-kit.sh
 scripts/dev_settings.py

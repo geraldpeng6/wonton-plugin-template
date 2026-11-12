@@ -17,6 +17,7 @@
 #                                             以用户的身份请求插件网页；--sso 会从清单 webui.path 的入口提交 JS 自动表单并跟完重定向
 #   scripts/dev.sh api <方法> <路径> [<curl 参数>…] 带用户令牌调用核心管理接口
 #   scripts/dev.sh egress <地址>                读取设置后用同样的 restarts 和直连网段设置出口代理
+#   scripts/dev.sh model <上游地址> <模型> <key 文件>  把 OpenAI 兼容的服务商接成模型网关的上游（key 只从文件读）
 #   scripts/dev.sh mcp list                   Bot 经 MCP 总线能调到的工具（JSON）
 #   scripts/dev.sh mcp call <工具> [<JSON>]   经 MCP 总线调用工具，参数是 JSON 对象，默认 {}
 #   scripts/dev.sh mcp --direct list|call …   直连工作区清单的 MCP 服务，只调试插件本身，不走总线权限和确认
@@ -637,6 +638,8 @@ web() {
 if [[ "${1:-}" != kit-update ]]; then
   # shellcheck source=scripts/dev-mcp.sh
   . "$root/scripts/dev-mcp.sh"
+  # shellcheck source=scripts/dev-model.sh
+  . "$root/scripts/dev-model.sh"
 fi
 
 mcp() {
@@ -822,6 +825,7 @@ case "${1:-}" in
   web) web "${@:2}" ;;
   api) api_command "${@:2}" ;;
   egress) egress_proxy "${@:2}" ;;
+  model) model_upstream "${@:2}" ;;
   session) session "${@:2}" ;;
   mcp) mcp "${@:2}" ;;
   approve) approve "${@:2}" ;;

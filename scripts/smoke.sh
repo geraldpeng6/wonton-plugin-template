@@ -35,6 +35,7 @@ for name in no_proxy NO_PROXY; do
   export "$name=${!name:+${!name},}localhost,127.0.0.1,::1,.localhost,wonton.internal,.wonton.internal"
 done
 
+caller_dir="$PWD"
 mkdir -p "$root/.wonton"
 exec 9>"$root/.wonton/smoke.lock"
 flock -n 9 || die "同一仓库的另一套冒烟正在跑"
@@ -190,6 +191,13 @@ say "Hermes：$hermes_line"
 if [[ "$(jq -r '(."x-wonton".permissions // []) | index("models") // empty' <<<"$PROBES_FACTS")" != "" ]]; then
   magpie_line="$(probes_status_wait ai.usemagpie.magpie 30)" ||
     { fail 装得上 "模型网关不是 running healthy：$magpie_line"; exit 0; }
+  if [[ -n "${WONTON_DEV_MODEL_BASE_URL:-}" ]]; then
+    say "接模型上游 $WONTON_DEV_MODEL_BASE_URL（${WONTON_DEV_MODEL:-}）"
+    # 冒烟在副本目录里跑 dev.sh：相对路径的 key 文件按调用时的目录算。
+    probes_dev model "$WONTON_DEV_MODEL_BASE_URL" "${WONTON_DEV_MODEL:-}" \
+      "$(cd "$caller_dir" && realpath "${WONTON_DEV_MODEL_KEY_FILE:-}")" >>"$LOG" 2>&1 ||
+      { fail 装得上 "接模型上游失败，看 $LOG"; exit 0; }
+  fi
 fi
 
 if declare -F before_install >/dev/null; then
