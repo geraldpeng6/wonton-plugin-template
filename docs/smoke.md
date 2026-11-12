@@ -21,6 +21,7 @@
 | `--upgrade-from <tag>` | 升级保数据从哪个 tag 升上来。不给时取 `git describe` 到的最近 tag；没有 tag 时这一项记 N/A。正式冒烟传插件仓库 `main` 上最新的正式版 tag（`v*`，不含预发布版） |
 | `--no-upgrade <原因>` | 不测升级，升级保数据记 N/A 并写上原因，重装保数据照测。给跑冒烟的机器装不到旧版镜像这类调用方的限制用；插件自己的问题不用它掩盖。不能和 `--upgrade-from` 同时给 |
 | `--bridge-image <镜像>` | 把清单里 `bridge` 服务的镜像换成这个再装，测未发布的桥。只换工作区这一版，升级起点的 tag 用它自己的清单。清单没有 `bridge` 服务时退出码 2 |
+| `--setting <名字>=<值>` | 插件设置的值，可以给多次；和探针的 `SMOKE_SETTINGS` 同名时以这里为准。见下面的“插件设置” |
 
 | 环境变量 | 作用 | 不设时 |
 | --- | --- | --- |
@@ -39,6 +40,48 @@
 
 冒烟只访问本机网关和栈内地址，会在 `no_proxy`、`NO_PROXY` 后面补上 `localhost`、`127.0.0.1`、`.localhost`、
 `wonton.internal` 这些地址，主机导出的上网代理不会截走这些请求。探针里自己写的 `curl` 也建议带 `--noproxy '*'`。
+
+## 探针要写的
+
+`scripts/smoke-probes.sh` 里按需定义下面这些函数和变量；函数没写的项按表里的规则处理，不默认放行。
+
+| 函数 | 什么时候跑 | 没写时 |
+| --- | --- | --- |
+| `web_assert` | 网页打得开：标准输入是带用户会话取到的入口页面，命中应用真实页面时返回 0 | 有 `webui` 时 FAIL |
+| `identity_check` | 用户身份能用：用应用自己的“当前用户”接口断言认出的是用户管理员，不碰数据 | 有 `webui` 且没声明 `IDENTITY_NA=1` 时 FAIL |
+| `before_mcp`、`mcp_check`、`mcp_assert` | 工具项：调用前备数据；自己断言多个工具；断言 `MCP_TOOL` 的调用结果（标准输入） | 见 `MCP_TOOL` |
+| `data_write`、`data_check` | 升级保数据、重装保数据（两个都写才跑） | 没声明 `DATA_NA=1` 时两项 FAIL |
+| `before_install` | 装插件之前（出口代理配好之后） | 不跑 |
+| `extra_check` | 工具项之后，结果记“附加检查”（见“输出”） | 没有这一项 |
+
+| 声明变量 | 作用 | 默认 |
+| --- | --- | --- |
+| `IDENTITY_NA=1` | 应用没有可断言的用户体系，用户身份能用记 N/A | `0` |
+| `DATA_NA=1` | 应用不存用户数据，升级保数据、重装保数据记 N/A | `0` |
+| `SMOKE_NOTE` | 一句话说明为什么 N/A，写进 N/A 行的说明 | 空 |
+| `MCP_TOOL`、`MCP_ARGS` | 工具项真调的只读工具（可不带插件前缀）和 JSON 参数；工具要标 `readOnlyHint` | 空、`{}`：只看 `tools/list` 有没有本插件工具 |
+| `EXTRA_TIMEOUT` | `extra_check` 的限时秒数 | `600` |
+| `SMOKE_SETTINGS` | 冒烟装插件时填的设置，bash 数组，每项 `名字=值`，如 `SMOKE_SETTINGS=(eula=true)`。见下面的“插件设置” | 空：只用 Schema 的默认值 |
+
+声明变量写在文件顶层（套件读入探针后就看它们）；`SMOKE_*` 运行时变量只在函数里读（见下）。
+
+探针要往插件的共享文件夹放测试数据时，写核心容器里的 `$SMOKE_DATA_DIR/shares/<共享名>`（`docker exec "$SMOKE_CORE" …`），
+核心按清单的共享声明把它挂进插件容器。
+
+## 插件设置
+
+清单 `x-wonton.settings` 的设置（JSON Schema）在冒烟里和主人在 App 里填的走同一条路：`dev.sh install`、`reinstall`、
+`upgrade` 和 `smoke` 都接受 `--setting <名字>=<值>`。套件按安装预览里的设置表单定类型，开关写 `true`/`false`，
+整数、小数写数字，单选写选项的值，多选用英文逗号分隔；随上传的插件包放在 `Wonton-Plugin-Settings` 请求头里交给核心，
+装完再读设置页核对值都存下了。名字不在表单里、类型不对、必填又没有默认值却没给，都在发安装请求之前报错。
+
+- 冒烟的每次安装（升级起点的旧 tag、工作区版本、重装）都带上 `SMOKE_SETTINGS` 和命令行的 `--setting`。旧 tag 没有的设置
+  装它时不带，日志里写明。
+- `reinstall` 是卸载再装，卸载会丢掉设置，所以先读出装着的值再带上；`upgrade` 只带给了的项，其余沿用装着的值。
+- 冒烟要的值写在探针里，不写进 Schema 的 `default`：`default` 是给用户的默认值。要用户同意许可这类必填项不该有默认值，
+  冒烟替用户填 `true` 只说明“同意以后能用”。
+- 设置值不是密钥：明文存进插件记录，也会写进冒烟日志。密钥走清单的 `secrets`。
+- 核心按 Schema 的默认值试渲染 compose 来检查清单，没有默认值的设置在 compose 里要写回退，如 `${WONTON_SETTING_EULA:-false}`。
 
 ## 探针能用的变量和助手
 
