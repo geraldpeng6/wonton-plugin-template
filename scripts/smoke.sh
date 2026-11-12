@@ -69,8 +69,13 @@ cleanup() {
   image="$(sed -n 's/^WONTON_CORE_IMAGE=//p' "$SMOKE_DEV_STATE/.env" 2>/dev/null | tail -1)"
   if [[ -f "$SMOKE_DEV_STATE/.env" ]]; then
     say "清理实例 $instance"
-    (cd "$copy" && nice -n 19 timeout 900 scripts/dev.sh purge --yes) >>"$LOG" 2>&1
+    # 状态目录不在工作区里，purge 要经 probes_dev 带上 WONTON_DEV_STATE，不然它找不到 .env，核心栈整套留下。
+    probes_dev_t 900 purge --yes >>"$LOG" 2>&1
   fi
+  # 核心栈（核心、Matrix、身份提供方……）是 Compose 项目 wonton-<实例>，不带 wonton.instance 标签：purge 没成时按项目名删。
+  docker ps -aq --filter "label=com.docker.compose.project=wonton-$instance" | xargs -r docker rm -f >/dev/null 2>&1
+  docker network ls -q --filter "label=com.docker.compose.project=wonton-$instance" | xargs -r docker network rm >/dev/null 2>&1
+  docker volume ls -q --filter "label=com.docker.compose.project=wonton-$instance" | xargs -r docker volume rm >/dev/null 2>&1
   docker ps -aq --filter "label=wonton.instance=$instance" | xargs -r docker rm -f >/dev/null 2>&1
   docker network ls -q --filter "label=wonton.instance=$instance" | xargs -r docker network rm >/dev/null 2>&1
   docker volume ls -q --filter "label=wonton.instance=$instance" | xargs -r docker volume rm >/dev/null 2>&1
@@ -81,7 +86,8 @@ cleanup() {
     rm -rf "$work" 2>/dev/null
   fi
   local left
-  left="$(docker ps -aq --filter "label=wonton.instance=$instance" | wc -l)"
+  left="$({ docker ps -aq --filter "label=wonton.instance=$instance"
+    docker ps -aq --filter "label=com.docker.compose.project=wonton-$instance"; } | sort -u | wc -l)"
   say "残留资源（实例 $instance）：$left"
   if [[ "$left" != 0 ]]; then
     echo "FAIL 清理：残留 $left 个资源"
