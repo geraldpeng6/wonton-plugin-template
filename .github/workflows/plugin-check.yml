@@ -92,6 +92,111 @@ jobs:
             echo "上面这些行引用了 ADR 编号：插件仓库是公开的，读者看不到 ADR，把要说的原因直接写出来。" >&2
             exit 1
           fi
+      # 机器名、内部脚本名、内网地址和会过时的状态词进了公开仓库就收不回来，PR 上先拦住；扫整个仓库，不只看改动。
+      - name: 公开仓库泄漏检查
+        shell: python
+        run: |
+          import fnmatch
+          import hashlib
+          import os
+          import re
+          import subprocess
+          import sys
+
+          # 机器名和内部脚本名按加盐哈希比对：名单本身写进公开仓库就是泄漏。哈希只防被搜索到，挡不住穷举短名字。
+          # 第一组只要单独出现就算；第二组是常见词或数字（版本号、端口、行号里到处都是），只在指机器的写法里算。
+          ALWAYS = {'5c166a6466e0133c', '1e73ad4544a12aaf', 'f40bafa815094acd', '220782975ac7828e',
+                    '5cb02949aa739e24', '87d0117601845764', '2e79e948c27bfe9d', '421c198ae436309f'}
+          IN_HOST_CONTEXT = ALWAYS | {'cd4ae7a244ba48a6', '1d057cd132164e22', '02862ab1a24b080f', '0f70910a30edd8cb'}
+          NAME = r'(?P<h>[A-Za-z0-9_-]+)'
+          HOST_CONTEXTS = [re.compile(p) for p in (
+              rf'\bssh\s+(?:-\S+\s+)*(?:[A-Za-z0-9_.-]+@)?{NAME}(?![A-Za-z0-9_.-])',  # ssh -4 <机器>、ssh user@<机器>
+              rf'(?<![A-Za-z0-9_./:-]){NAME}:[~/]',  # <机器>:~/路径（scp、rsync）
+              rf'@{NAME}(?![A-Za-z0-9_.@-])',  # user@<机器>
+              rf'(?i)\bhost(?:name)?(?:\s*[:=]\s*|\s+){NAME}(?![A-Za-z0-9_.-])',  # --host <机器>、host: <机器>
+              rf'[在到去]\s*{NAME}\s*[上里]',  # 在 <机器> 上
+          )]
+          TOKEN = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_-]*')
+          NETWORKS = re.compile(
+              r'(?<![\w.])(?:192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}'
+              r'|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}'  # Tailscale 用的 CGNAT 段
+              r'|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(?![\w.]*\d)'
+          )
+          # 状态词只查文档和注释。排除“出现在”“实现在”之类的词，以及加引号的引用（规则本身会引这些词）；
+          # “还没”只在后面跟着开发进度类的动词时算，“用户还没配置过”这类描述运行时状态的照常写。
+          STATUS = re.compile(
+              r'(?<![“"「‘\'])(?:目前|(?<![出实表体])现在(?!\s*[+＋-])'
+              r'|还没(?:有)?(?:合入|合并|收|定稿|定|支持|实现|接入|上线|发布|做|写|适配|开放|提供|让))'
+          )
+
+
+          def digest(token):
+              return hashlib.sha256(f'wonton-leak:{token.lower()}'.encode()).hexdigest()[:16]
+
+
+          def leaked_name(line):
+              for token in TOKEN.findall(line):
+                  if any(digest(part) in ALWAYS for part in {token, *re.split(r'[-_]', token)}):
+                      return True
+              return any(digest(m.group('h')) in IN_HOST_CONTEXT for p in HOST_CONTEXTS for m in p.finditer(line))
+
+
+          def findings(path, line):
+              if leaked_name(line):
+                  yield '主机名或内部脚本名'
+              if NETWORKS.search(line):
+                  yield '内网地址'
+              stripped = line.lstrip()
+              if (path.endswith('.md') or stripped.startswith(('#', '//'))) and STATUS.search(line):
+                  yield '状态词（目前/现在/还没）'
+
+
+          def load_allow():
+              allow = []
+              if not os.path.exists('.leak-allow'):
+                  return allow
+              with open('.leak-allow', encoding='utf-8') as source:
+                  for number, raw in enumerate(source, 1):
+                      if not raw.strip() or raw.lstrip().startswith('#'):
+                          continue
+                      parts = [part.strip() for part in raw.rstrip('\n').split('|')]
+                      if len(parts) != 3 or not all(parts):
+                          sys.exit(f'.leak-allow:{number}: 格式是“路径 | 行内片段 | 原因”，三项都要写')
+                      allow.append([parts[0], parts[1], False])
+              return allow
+
+
+          def main():
+              allow = load_allow()
+              paths = subprocess.check_output(['git', 'ls-files', '-z']).split(b'\0')
+              failed = False
+              for raw_path in filter(None, paths):
+                  path = os.fsdecode(raw_path)
+                  if path == '.leak-allow' or not os.path.isfile(path):
+                      continue
+                  with open(path, 'rb') as source:
+                      data = source.read()
+                  if b'\0' in data[:8192]:
+                      continue
+                  for number, line in enumerate(data.decode('utf-8', errors='replace').splitlines(), 1):
+                      for kind in findings(path, line):
+                          entry = next((e for e in allow if fnmatch.fnmatch(path, e[0]) and e[1] in line), None)
+                          if entry:
+                              entry[2] = True
+                              continue
+                          failed = True
+                          print(f'::error file={path},line={number}::{kind}')
+                          print(f'{path}:{number}: [{kind}] {line.strip()}')
+              for pattern, fragment, used in allow:
+                  if not used:
+                      print(f'::warning file=.leak-allow::豁免没有命中任何行，删掉：{pattern} | {fragment}')
+              if failed:
+                  print('插件仓库是公开的：上面这些行带了机器名、内部脚本名、内网地址或会过时的状态词。'
+                        '示例地址用 192.0.2.10；确属误报的，在 .leak-allow 里按“路径 | 行内片段 | 原因”豁免。', file=sys.stderr)
+              sys.exit(1 if failed else 0)
+
+
+          main()
       # 官方要求（镜像按摘要固定、健康检查、标签、许可证、作者、声明等）里，摘要要等发布流程推完镜像才写回
       # compose，重建自家镜像的 PR 在发布前满足不了，所以 PR 上只跑非官方检查；官方要求由 publish.sh --official
       # 在推镜像、写回摘要之后统一查。

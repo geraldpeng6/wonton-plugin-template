@@ -88,5 +88,6 @@ PR 描述写清改了什么、为什么、上面哪几步做了、结果是什�
 
 - 提交作者用 GitHub 的 noreply 邮箱：`git config user.email "<数字 ID>+<用户名>@users.noreply.github.com"`。
 - 提交信息、PR、issue 和截图都是公开的，里面不写真实的局域网地址、主机名、账号和密钥。写验证结果时只写做了什么、结果如何；地址换成 `192.0.2.10` 这样的示例。
+- CI 的“公开仓库泄漏检查”扫整个仓库里的机器名、内网地址和状态词；确属误报的写进 `.leak-allow`，每行 `路径 | 行内片段 | 原因`。
 - 发布就是改清单的 `version`、提交，再跑 `scripts/publish.sh`：有自建镜像时先把摘要提交推进 `main`，tag `v<version>` 打在
   摘要提交上（只打一次，不移动）。官方索引记的是 tag 对应的提交，要更新就向 `geraldpeng6/wonton-store` 提 PR。

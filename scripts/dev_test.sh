@@ -174,13 +174,13 @@ has "$err" "没有叫 nope 的服务" "未知服务要报错"
 has "$err" "hydra" "未知服务要列出核心服务"
 has "$err" "web" "未知服务要列出插件服务"
 
-run 0 "FAKE_SETTINGS=$settings" "FAKE_DNS=10.213.0.2 auth.wonton.internal" -- diag || true
+run 0 "FAKE_SETTINGS=$settings" "FAKE_DNS=192.0.2.53 auth.wonton.internal" -- diag || true
 has "$out" "都通了" "全通时给出结论"
 has "$out" "http_proxy=" "要看插件容器里的代理变量"
 
 # 没配代理：可达性那一项说清楚，不算失败。
 nop='{"url":null,"source":"none","provider":null,"plugin_path":null,"core_path":null,"host_cidrs":[],"direct_cidrs":[],"notices":[],"restarts":[]}'
-run 0 "FAKE_SETTINGS=$nop" "FAKE_DNS=10.213.0.2 auth.wonton.internal" -- diag || true
+run 0 "FAKE_SETTINGS=$nop" "FAKE_DNS=192.0.2.53 auth.wonton.internal" -- diag || true
 has "$out" "没有配出口代理" "没配代理时说明"
 
 # 连不上代理和解析不了主机名：两项各给一行原因，后面的项照样跑完。
@@ -192,7 +192,7 @@ has "$out" "no_proxy=" "前面的项失败后后面的项照样跑"
 has "$out" "2 项失败" "数出失败项"
 
 # 有 http_proxy 却没有 no_proxy：代理变量那一项失败。
-run 1 "FAKE_SETTINGS=$settings" "FAKE_DNS=10.213.0.2 auth.wonton.internal" "FAKE_HTTP_PROXY=http://host.docker.internal:7899" "FAKE_NO_PROXY=" -- diag || true
+run 1 "FAKE_SETTINGS=$settings" "FAKE_DNS=192.0.2.53 auth.wonton.internal" "FAKE_HTTP_PROXY=http://host.docker.internal:7899" "FAKE_NO_PROXY=" -- diag || true
 has "$out" "有 http_proxy 却没有 no_proxy" "代理变量不对要写原因"
 
 # 接口读不到设置：这一项失败，别的项不受影响。
