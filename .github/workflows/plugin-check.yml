@@ -220,13 +220,36 @@ jobs:
           cargo clippy --all-targets -- -D warnings -W clippy::too_many_lines
           cargo test
 
-  smoke:
-    # 依赖镜像的升级 PR 合并前要过端到端冒烟（scripts/dev.sh smoke，四项真实请求，不用 mock）。
-    # 判“Dependabot 的 PR”同时看 actor 和 PR 作者：Dependabot 自己 rebase 时 actor 是 dependabot[bot]，
-    # 但任何人往 Dependabot 分支推 commit 都会把 actor 顶掉，PR 作者不会变。
-    # Dependabot 的 PR 拿到的是只读令牌：这一步只检出和起本地容器，不用仓库密钥、不写仓库。
-    if: ${{ github.event_name == 'workflow_dispatch' || github.actor == 'dependabot[bot]' || github.event.pull_request.user.login == 'dependabot[bot]' }}
+  smoke-plan:
+    name: 冒烟计划（GPU 前置）
     needs: check
+    if: ${{ github.event_name == 'workflow_dispatch' || github.actor == 'dependabot[bot]' || github.event.pull_request.user.login == 'dependabot[bot]' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.gpu.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: gpu
+        name: 检查 GPU 可跑性
+        shell: bash
+        run: |
+          set +e
+          scripts/smoke-gpu.sh .
+          rc=$?
+          if [[ "$rc" == 77 ]]; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+            echo '### 跳过：需要显卡，没跑' >> "$GITHUB_STEP_SUMMARY"
+            echo '该插件需要显卡；未安装、未执行冒烟，不计为通过。' >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$rc" == 0 ]]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          else
+            exit "$rc"
+          fi
+
+  smoke:
+    # GPU 不可用时由 smoke-plan 明确跳过，而不是伪装成通过。
+    if: ${{ needs.smoke-plan.outputs.run == 'true' }}
+    needs: [check, smoke-plan]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
