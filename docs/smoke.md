@@ -109,9 +109,15 @@
 | `mcp list`、`mcp call <工具> [<JSON>]` | 经 MCP 总线列出、调用工具 |
 | `probes_owner_room_wait <秒> <文字>` | 等用户的通知房间里出现包含这段文字的新消息 |
 | `extra_item <PASS\|FAIL\|N/A> <子项> <说明>` | 只在 `extra_check` 里用：记一行附加检查的子项 |
+| `probes_evidence_start` | 在 `extra_check` 发信前调用，标记失败取证的起点；未调用时从 `extra_check` 开始取 |
 | `agent_check_*`、`agent_say` | Agent 插件的附加检查（加密私聊、模型回答、MCP 工具、确认卡片、打断、重启、续聊、名单外不应答、聊天登录、登录网页、登录密钥撤回），用法和可调的等待（`AGENT_WAIT`、`AGENT_CARD_WAIT`、`AGENT_HEALTHY_WAIT`、等上一轮结束的 `AGENT_IDLE_QUIET` 和 `AGENT_IDLE_WAIT`）见 `scripts/agent-probes.sh` 开头 |
 
 `extra_check` 默认限时 600 秒，探针里写 `EXTRA_TIMEOUT=<秒>` 可以放宽（Agent 插件一轮要发十几条消息）。
+
+失败（返回非 0、超时或任一子项 FAIL）时，套件追加同一时间窗口的核心日志、Mailpit 查询结果和本实例本插件
+全部应用容器日志（包括已停止的容器）。日志用 `--since`，不截成最后几行；Mailpit 分别写明连接/执行失败、
+HTTP 错误和 JSON 解析失败。合法空收件箱仅代表查询时为空，不能证明邮件发出或投递；以通知私聊中的消息为证。
+成功路径不采集这些诊断。
 
 登录跳转和网页请求带的是浏览器同款的 `Accept`（含 `*/*`），按内容协商的登录入口不会回 406。
 

@@ -23,6 +23,7 @@
 #         room_wait() {
 #           local marker="probe-$RANDOM" url
 #           url="$(docker exec "wonton-$SMOKE_INSTANCE--${SMOKE_PLUGIN_ID//./-}--web" printenv WONTON_NOTIFY_URL)"
+#           probes_evidence_start
 #           probes_owner_room_wait 120 "$marker" & local pid=$!
 #           docker exec "wonton-$SMOKE_INSTANCE--${SMOKE_PLUGIN_ID//./-}--web" wget -q -O /dev/null \
 #             --header 'Content-Type: application/json' --post-data "{\"title\":\"$marker\"}" "$url"
@@ -40,6 +41,8 @@
 #       extra_item <PASS|FAIL|N/A> <子项> <说明> 记一行，结果行是“附加检查·<子项>”，任一子项 FAIL 即失败。
 #       Agent 插件（扮演用户手机发加密消息、确认卡片、名单外不应答等）组合 scripts/agent-probes.sh 的 agent_check_*，
 #       写法见那个文件的开头。
+#       失败时套件收集核心、Mailpit 和本插件容器的证据；发信前调用 probes_evidence_start，日志窗口从发送时刻起，
+#       不调用时从 extra_check 开始取。取证只在失败时追加到日志，收件箱为空不能代替私聊里的投递证据。
 # 探针自己起的容器（如一次性的对端服务）加上标签 wonton.instance=$SMOKE_INSTANCE，冒烟结束时随实例一起删掉。
 
 web_assert() { grep -q '你好'; }   # 示例页的标题

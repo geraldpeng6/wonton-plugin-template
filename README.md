@@ -22,6 +22,17 @@
 
 `scripts/dev.sh smoke` 起一套一次性实例跑合并前的六项检查，合并前的正式冒烟也是这条命令；输入变量、输出和退出码见 [docs/smoke.md](docs/smoke.md)。
 
+### 需要显卡的插件
+
+清单声明 `requirements.gpu.need: required`（或申请 `devices.gpu`）时，没有 GPU 的冒烟机不会安装插件，作业会显示“跳过：需要显卡，没跑”，退出码为 `77`。在已配置 Docker GPU runtime 的机器上手动运行：
+
+```bash
+scripts/smoke-gpu.sh .
+scripts/dev.sh smoke
+```
+
+不要为此安装系统驱动，也不要修改宿主机服务；手动命令只使用当前 Docker target。
+
 ## 对着别的栈跑探针
 
 `probes`、`api`、`session` 按 `.wonton/.env` 的 `WONTON_BASE_DOMAIN` 拼核心地址，`up` 起的栈自己写这个键。插件装进别人的栈、或者对着已有环境排查时，把那套栈的基础域名写进 `.wonton/.env`，不要只按实例名猜地址：实例名只是资源名前缀，网关按 Host 认域名，拼错了会回“没有安装”。
