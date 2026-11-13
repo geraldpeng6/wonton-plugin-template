@@ -4,7 +4,7 @@
 
 kit_commit() {
   local ref="$1" refs sha name branch="" tag="" peeled="" head=""
-  refs="$(git ls-remote https://github.com/geraldpeng6/wonton-plugin-template.git \
+  refs="$(git ls-remote https://github.com/wontonapp/wonton-plugin-template.git \
     "$ref" "$ref^{}" "refs/heads/$ref" "refs/tags/$ref" "refs/tags/$ref^{}")" ||
     die "取不到开发套件的引用 $ref"
   while read -r sha name; do
@@ -29,10 +29,14 @@ kit_update() (
   local origin sha stage path workflow keep=""
   origin="$(git -C "$root" remote get-url origin 2>/dev/null || true)"
   case "${origin%.git}" in
-    https://github.com/geraldpeng6/wonton-plugin-template | \
+    https://github.com/wontonapp/wonton-plugin-template | \
+      http://github.com/wontonapp/wonton-plugin-template | \
+      git@github.com:wontonapp/wonton-plugin-template | \
+      ssh://git@github.com:wontonapp/wonton-plugin-template | \
+      https://github.com/geraldpeng6/wonton-plugin-template | \
       http://github.com/geraldpeng6/wonton-plugin-template | \
       git@github.com:geraldpeng6/wonton-plugin-template | \
-      ssh://git@github.com/geraldpeng6/wonton-plugin-template)
+      ssh://git@github.com:geraldpeng6/wonton-plugin-template)
       echo "这里就是套件的源头，不需要 kit-update；用 git pull 更新。"
       exit 0
       ;;
@@ -41,7 +45,7 @@ kit_update() (
   stage="$(mktemp -d "$root/.kit-update.XXXXXXXX")"
   trap 'rm -rf "$stage"' EXIT
   mkdir -p "$stage/scripts"
-  local base="https://raw.githubusercontent.com/geraldpeng6/wonton-plugin-template/$sha"
+  local base="https://raw.githubusercontent.com/wontonapp/wonton-plugin-template/$sha"
   info "下载开发套件 $sha"
   # 下载走公网、不经 --noproxy：每个文件只有几十 KB，线路卡住时 3 分钟内必须结束、连接 30 秒不通也不再等
   # （SMOKE_DOWNLOAD_MAX_TIME / SMOKE_CONNECT_TIMEOUT，见 lib.sh），卡住时套件不会换到半份文件。
@@ -70,10 +74,10 @@ kit_update() (
     info "一个仓库多家插件：保留本仓库的检查工作流和发布脚本。"
   else
     workflow="$stage/.github/workflows/check.yml"
-    sed -E "s~uses: (\./|geraldpeng6/wonton-plugin-template/)\.github/workflows/plugin-check\.yml(@[^[:space:]]+)?~uses: geraldpeng6/wonton-plugin-template/.github/workflows/plugin-check.yml@$sha~" \
+    sed -E "s~uses: (\./|geraldpeng6/wonton-plugin-template/|wontonapp/wonton-plugin-template/)\.github/workflows/plugin-check\.yml(@[^[:space:]]+)?~uses: wontonapp/wonton-plugin-template/.github/workflows/plugin-check.yml@$sha~" \
       "$workflow" >"$stage/check.yml"
     mv "$stage/check.yml" "$workflow"
-    grep -qF "uses: geraldpeng6/wonton-plugin-template/.github/workflows/plugin-check.yml@$sha" "$workflow" ||
+    grep -qF "uses: wontonapp/wonton-plugin-template/.github/workflows/plugin-check.yml@$sha" "$workflow" ||
       die "开发套件的 check.yml 没有可固定的工作流引用，没有替换文件"
   fi
   printf '%s\n' "$sha" >"$stage/scripts/KIT"
