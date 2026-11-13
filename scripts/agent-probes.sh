@@ -435,6 +435,10 @@ agent_check_card() {
     else
       extra_item FAIL 确认卡片 "同意了卡片，等不到命令跑完：$(agent_tail "$AGENT_CARD_LOG" 200)｜$(agent_tail "$(cat "$file")")"
     fi
+  elif [[ -n "$svc" ]] && docker exec "$container" test -e /workspace/card-ok 2>/dev/null; then
+    # 没出卡但命令跑了：CLI 免确认直接执行，卡片语义验不到。
+    kill "$bg" 2>/dev/null; wait "$bg"
+    extra_item N/A 确认卡片 "CLI 没出卡，命令直接跑了（$svc 里有 card-ok），卡片这一问没验到：$(agent_tail "$AGENT_CARD_LOG" 200)"
   else
     kill "$bg" 2>/dev/null; wait "$bg"
     extra_item FAIL 确认卡片 "让 Agent 跑命令，等不到确认卡片：$(agent_tail "$AGENT_CARD_LOG" 200)｜$(agent_tail "$(cat "$file")")"
@@ -459,6 +463,10 @@ agent_check_card() {
     else
       extra_item PASS 确认卡片 "拒绝卡片后命令没跑，Agent 如实说了"
     fi
+  elif [[ -n "$svc" ]] && docker exec "$container" test -e /workspace/card-no 2>/dev/null; then
+    # 没出卡但命令也跑了：无从验“拒绝后没跑”。
+    kill "$bg" 2>/dev/null; wait "$bg"
+    extra_item N/A 确认卡片 "第二问 CLI 也没出卡、命令直接跑了（$svc 里有 card-no），拒绝没验到：$(agent_tail "$AGENT_CARD_LOG" 200)"
   elif ((granted)) && [[ "$AGENT_CARD_EMPTY" == 1 ]]; then
     # 本会话刚对同形状命令放行过、待答列表也是空的：CLI 干脆没再问，这一问验不到。
     kill "$bg" 2>/dev/null; wait "$bg"
