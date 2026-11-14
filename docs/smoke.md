@@ -38,6 +38,10 @@
 | `WONTON_SMOKE_MAX_STACKS`、`WONTON_SMOKE_WAIT_MINUTES` | 这台 Docker 上别人的验证栈达到这个数时排队，最多等多少分钟 | 不排队 |
 | `SMOKE_WEB_MAX_TIME`、`SMOKE_API_MAX_TIME` | 网页、核心接口请求的超时秒数 | 120、600 |
 
+模型上游只用一次性、限定模型的开发 key，验完在服务商处吊销。`dev.sh model` 把文件里的 key 经标准输入传入本实例的
+模型网关；宿主命令参数不含 key，但容器内 magpie 的命令参数可能含 key，网关数据目录也会保存它。
+脚本先请求上游模型列表，再添加服务商；默认组由网关同步，添加成功不代表模型对话已验证。
+
 冒烟只访问本机网关和栈内地址，会在 `no_proxy`、`NO_PROXY` 后面补上 `localhost`、`127.0.0.1`、`.localhost`、
 `wonton.internal` 这些地址，主机导出的上网代理不会截走这些请求。探针里自己写的 `curl` 也建议带 `--noproxy '*'`。
 
