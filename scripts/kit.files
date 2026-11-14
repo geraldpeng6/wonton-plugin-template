@@ -8,6 +8,7 @@ scripts/dev_settings.py
 scripts/plugin_settings.py
 scripts/dev_test.sh
 scripts/check.sh
+scripts/oidc-relay.sh
 scripts/publish.sh
 scripts/lib.sh
 scripts/probes.sh
