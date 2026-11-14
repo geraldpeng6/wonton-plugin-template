@@ -38,24 +38,10 @@ main() {
   . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
   need docker jq
   [[ $# -le 1 ]] || { echo "用法：smoke-gpu.sh [插件目录]" >&2; return 2; }
-  local plugin_dir="${1:-$plugin}" config gpu_need probe rc=0
+  local plugin_dir="${1:-$plugin}" probe rc=0
   [[ -f "$plugin_dir/docker-compose.yml" ]] || { echo "GPU 冒烟：找不到清单 $plugin_dir/docker-compose.yml" >&2; return 1; }
-  config="$(docker compose -f "$plugin_dir/docker-compose.yml" config --no-interpolate --format json)" || {
-    echo "GPU 冒烟：docker compose config 解析失败" >&2
-    return 1
-  }
-  gpu_need="$(jq -r '
-    .["x-wonton"] as $x | $x.requirements.gpu as $gpu
-    | if $gpu != null then
-        if ($gpu | type) != "object" then error("requirements.gpu 必须是对象")
-        else ($gpu.need // "required") end
-      elif (($x.permissions // []) | index("devices.gpu")) != null then "required"
-      else "" end' <<<"$config")" || return 1
-  case "$gpu_need" in
-    ""|optional) printf 'run=true\n' >>"${GITHUB_OUTPUT:-/dev/null}"; return 0 ;;
-    required) ;;
-    *) echo "GPU 冒烟：requirements.gpu.need 值非法：$gpu_need" >&2; return 1 ;;
-  esac
+  plugin_dir="$(cd "$plugin_dir" && pwd)" || { echo "GPU 冒烟：无法定位插件目录 $plugin_dir" >&2; return 1; }
+  # 核心 plugin host 直接按清单的 requirements 判断主机；不展开 Compose 变量，避免清单里的 `:?` 被误解析。
   probe="$(gpu_present "$plugin_dir" 2>&1)" || rc=$?
   case "$rc" in
     0) printf 'run=true\n' >>"${GITHUB_OUTPUT:-/dev/null}" ;;
