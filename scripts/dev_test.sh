@@ -373,6 +373,7 @@ chmod +x "$gbin/docker"
 gpu_smoke() {
   local status=0
   : >"$work/github_output"
+  # shellcheck disable=SC2031 # root 只在脚本开头赋值一次，没有子 shell 改它（误报）
   env FAKE_GPU_HOST="$1" GITHUB_OUTPUT="$work/github_output" PATH="$gbin:$PATH" \
     bash "$root/scripts/smoke-gpu.sh" "$gplugin" >"$work/gout" 2>&1 || status=$?
   gout="$(cat "$work/gout")"
