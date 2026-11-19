@@ -244,21 +244,21 @@ has "$out" "当前代理设置" "要查当前设置"
 has "$out" "读不到设置" "读不到设置要写原因"
 has "$out" "http_proxy=" "接口失败后后面的项照样跑"
 
-# approve：权限卡（ACP session/request_permission 转来的，选项带 choice_id）要把允许选项的
+# approve：权限卡（Agent 经核心 /agent/permissions 请的，选项带 choice_id）要把允许选项的
 # answer 和 choice_id 一起发，只发 answer 核心回 400；普通卡照旧只发 answer。
-cards='{"confirmations":[{"id":"perm-1","state":{"type":"pending"},"title":"dsh 想跑命令","choices":[{"answer":"approve","label":"允许一次","choice_id":"acp-0"},{"answer":"reject","label":"拒绝","choice_id":"acp-2"}]},{"id":"plain-1","state":{"type":"pending"},"title":"Hermes 想装插件","choices":[{"answer":"approve","label":"允许"}]}]}'
+cards='{"confirmations":[{"id":"perm-1","state":{"type":"pending"},"title":"Agent 想跑命令","choices":[{"answer":"approve","label":"允许一次","choice_id":"once"},{"answer":"reject","label":"拒绝","choice_id":"deny"}]},{"id":"plain-1","state":{"type":"pending"},"title":"Hermes 想装插件","choices":[{"answer":"approve","label":"允许"}]}]}'
 run 0 "FAKE_CARDS=$cards" -- approve || true
-has "$out" "已批准：dsh 想跑命令" "权限卡带 choice_id 批准"
+has "$out" "已批准：Agent 想跑命令" "权限卡带 choice_id 批准"
 has "$out" "已批准：Hermes 想装插件" "普通卡只发 answer"
 
 # 只有拒绝类选项的卡代批不了：如实写原因，退出码 1。
-rejonly='{"confirmations":[{"id":"rej-1","state":{"type":"pending"},"title":"dsh 想发网页","choices":[{"answer":"reject","label":"拒绝","choice_id":"acp-0"}]}]}'
+rejonly='{"confirmations":[{"id":"rej-1","state":{"type":"pending"},"title":"Agent 想发网页","choices":[{"answer":"reject","label":"拒绝","choice_id":"once"}]}]}'
 run 1 "FAKE_CARDS=$rejonly" -- approve || true
-has "$err" "没批准：dsh 想发网页：卡片上没有允许类的选项" "只有拒绝选项要写原因"
+has "$err" "没批准：Agent 想发网页：卡片上没有允许类的选项" "只有拒绝选项要写原因"
 
 # 核心拒掉其中一张：报核心给的原因，别的卡片照批。
 run 1 "FAKE_CARDS=$cards" "FAKE_ANSWER_FAIL=perm-1" -- approve || true
-has "$err" "没批准：dsh 想跑命令：这张卡片已经回答过了" "核心拒批要报核心的原因"
+has "$err" "没批准：Agent 想跑命令：这张卡片已经回答过了" "核心拒批要报核心的原因"
 has "$out" "已批准：Hermes 想装插件" "一张失败不影响下一张"
 
 # 列表接口挂了：报错退出。

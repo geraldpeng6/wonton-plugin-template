@@ -20,12 +20,11 @@
 | --- | --- |
 | `--upgrade-from <tag>` | 升级保数据从哪个 tag 升上来。不给时取 `git describe` 到的最近 tag；没有 tag 时这一项记 N/A。正式冒烟传插件仓库 `main` 上最新的正式版 tag（`v*`，不含预发布版） |
 | `--no-upgrade <原因>` | 不测升级，升级保数据记 N/A 并写上原因，重装保数据照测。给跑冒烟的机器装不到旧版镜像这类调用方的限制用；插件自己的问题不用它掩盖。不能和 `--upgrade-from` 同时给 |
-| `--bridge-image <镜像>` | 把清单里 `bridge` 服务的镜像换成这个再装，测未发布的桥。只换工作区这一版，升级起点的 tag 用它自己的清单。清单没有 `bridge` 服务时退出码 2 |
 | `--setting <名字>=<值>` | 插件设置的值，可以给多次；和探针的 `SMOKE_SETTINGS` 同名时以这里为准。见下面的“插件设置” |
 
 | 环境变量 | 作用 | 不设时 |
 | --- | --- | --- |
-| `WONTON_PLUGIN` | 一个仓库放多家插件时，插件包目录（相对仓库根，如 `agents/<名>`）。探针放在这个目录的 `smoke-probes.sh`，升级起点只认 `<目录名>/v*` 的 tag | 仓库根就是插件包，探针在 `scripts/smoke-probes.sh` |
+| `WONTON_PLUGIN` | 一个仓库放多家插件时，插件包目录（相对仓库根，如 `<名>`）。探针放在这个目录的 `smoke-probes.sh`，升级起点只认 `<目录名>/v*` 的 tag | 仓库根就是插件包，探针在 `scripts/smoke-probes.sh` |
 | `WONTON_CORE_IMAGE` | 核心镜像 | `ghcr.io/wontonapp/wonton-core:main` |
 | `WONTON_PULL` | `never`：用本机已有的核心镜像，不拉取 | 每次起栈先拉取 |
 | `WONTON_DEV_CORE_SUBNET` | 核心网络用的子网（如 `192.0.2.0/24`），几套栈共用一台 Docker 时不占默认地址池 | Docker 分配 |
@@ -114,7 +113,7 @@
 | `probes_owner_room_wait <秒> <文字>` | 等用户的通知房间里出现包含这段文字的新消息 |
 | `extra_item <PASS\|FAIL\|N/A> <子项> <说明>` | 只在 `extra_check` 里用：记一行附加检查的子项 |
 | `probes_evidence_start` | 在 `extra_check` 发信前调用，标记失败取证的起点；未调用时从 `extra_check` 开始取 |
-| `agent_check_*`、`agent_say` | Agent 插件的附加检查（加密私聊、模型回答、MCP 工具、确认卡片、打断、重启、续聊、名单外不应答、聊天登录、登录网页、登录密钥撤回），用法和可调的等待（`AGENT_WAIT`、`AGENT_CARD_WAIT`、`AGENT_HEALTHY_WAIT`、等上一轮结束的 `AGENT_IDLE_QUIET` 和 `AGENT_IDLE_WAIT`）见 `scripts/agent-probes.sh` 开头 |
+| `agent_check_*`、`agent_say` | Agent 插件的附加检查（加密私聊、模型回答、MCP 工具、确认卡片、打断、重启、续聊、名单外不应答），用法和可调的等待（`AGENT_WAIT`、`AGENT_CARD_WAIT`、`AGENT_HEALTHY_WAIT`、等上一轮结束的 `AGENT_IDLE_QUIET` 和 `AGENT_IDLE_WAIT`）见 `scripts/agent-probes.sh` 开头 |
 
 `extra_check` 默认限时 600 秒，探针里写 `EXTRA_TIMEOUT=<秒>` 可以放宽（Agent 插件一轮要发十几条消息）。
 
@@ -149,4 +148,4 @@ N/A  <项>：<说明>
 | --- | --- |
 | 0 | 没有 FAIL（N/A 不算失败） |
 | 1 | 有 FAIL；或者冒烟没跑完（缺工具、同一仓库已有一套冒烟在跑、清单解析不了等），这时标准错误有原因、没有六项的结果行 |
-| 2 | 参数写错了，或 `--bridge-image` 用在没有 `bridge` 服务的插件上 |
+| 2 | 参数写错了 |
