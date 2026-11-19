@@ -19,6 +19,35 @@ need_plugin
 # 套件自己的命令（logs、diag）的用例：用假 docker，不碰真的 Docker。
 "$root/scripts/dev_test.sh"
 
+# oidc-relay 是套件部件，核心的检查不认识它；这几处写错会让相关的应用悄悄登录不了。
+relay_check() {
+  local facts
+  facts="$(docker compose -f "$root/docker-compose.yml" config --no-interpolate --format json)" ||
+    die "解析 docker-compose.yml 失败，未检查 oidc-relay"
+  python3 - "$facts" <<'PY' || exit 1
+import json, re, sys
+
+facts = json.loads(sys.argv[1])
+services = facts.get("services") or {}
+relay = services.get("oidc-relay")
+if relay is None:
+    sys.exit(0)
+image = relay.get("image") or ""
+if not re.search(r"@sha256:[0-9a-f]{64}$", image):
+    sys.exit("oidc-relay：镜像没按摘要固定，写成 名字:标签@sha256:…（见 README 的“服务端用 libcurl 的应用”）。")
+webui = (facts.get("x-wonton") or {}).get("webui") or {}
+if webui.get("sso") != "oidc":
+    sys.exit("oidc-relay 只给 webui.sso: oidc 的插件用，这里不是；WONTON_OIDC_ISSUER 不会注入。")
+mode = relay.get("network_mode") or ""
+target = mode.removeprefix("service:")
+if target == mode or target == "oidc-relay" or target not in services:
+    sys.exit(f'oidc-relay：network_mode 要是 "service:<访问签发方的应用服务>"，{target!r} 对不上。')
+if target != webui.get("service"):
+    sys.exit(f'oidc-relay：network_mode 要指向 webui.service（{webui.get("service")}），不是 {target}。')
+PY
+}
+relay_check
+
 # 核心只在清单 spec 太新时报错，并顺带说出支持到哪一版；插件 spec 旧于核心时静默通过，模板照抄旧 spec 也不吭声。
 # 拿一个必报太新的最小清单去问核心支持到哪版（问不到就不提醒），比清单的 spec 旧就提醒一句。
 spec_reminder() {
