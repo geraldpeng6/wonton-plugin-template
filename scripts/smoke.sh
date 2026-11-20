@@ -286,12 +286,18 @@ if [[ "$DATA_NA" != 1 ]] && (( DATA_HOOKS )) && [[ -n "$upgrade_from" ]]; then
 fi
 
 # 装过升级起点时，核心不接受 install 覆盖已装的插件（同一版本号也一样）：升级用 reinstall，保留数据。
+# 核心镜像预装的默认 Agent 同理：不卸掉它（工具 Bot 还要用它的账号），直接 reinstall 换成工作区的版本。
 install_cmd=install
-((data_upgrade_base == 1)) && install_cmd=reinstall
+if ((data_upgrade_base == 1)) || probes_status_wait "$PROBES_PLUGIN_ID" 5 >/dev/null; then
+  install_cmd=reinstall
+fi
 if ! probes_dev "$install_cmd" --yes "${setting_args[@]}" >>"$LOG" 2>&1; then
-  fail 装得上 "dev.sh $install_cmd --yes 失败，看 $LOG"
-  for item in 网页打得开 用户身份能用 工具Bot调得到; do fail "$item" "装不上"; done
-  exit 0
+  # 预装的插件已经装着时 install 报冲突（依赖连接也还没建好）：卸掉（数据留着）再装一次。
+  say "install 失败，卸掉预装的插件再试一次（数据留着）"
+  probes_dev uninstall >>"$LOG" 2>&1 ||
+    { fail 装得上 "卸载预装的插件失败，看 $LOG"; for i in 网页打得开 用户身份能用 工具Bot调得到; do fail "$i" 装不上; done; exit 0; }
+  probes_dev "$install_cmd" --yes "${setting_args[@]}" >>"$LOG" 2>&1 ||
+    { fail 装得上 "dev.sh $install_cmd --yes 失败（卸掉预装后重试），看 $LOG"; for i in 网页打得开 用户身份能用 工具Bot调得到; do fail "$i" 装不上; done; exit 0; }
 fi
 line="$(probes_status_wait "$PROBES_PLUGIN_ID" 40)" || { fail 装得上 "状态不是 running healthy：$line"; exit 0; }
 if ((chk_rc != 0)); then
