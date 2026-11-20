@@ -651,7 +651,10 @@ session_into() {
   if [[ -n "$sso" ]]; then
     sso_form_login "$jar" "$entry"
   else
-    curl_t "$SMOKE_WEB_MAX_TIME" "$entry" --noproxy '*' -o /dev/null -L -b "$jar" -c "$jar" -H "Accept: $browser_accept" ||
+    # 插件域名直接打开时，Bot 网页不跳登录页、直接回 401 JSON：先从核心域名换一次会话
+    # （/_wonton/sso 带核心会话签发交接码，跳回插件 /_wonton/session 换成插件域会话），再带着它打开入口。
+    curl_t "$SMOKE_WEB_MAX_TIME" "$base_url/_wonton/sso" --noproxy '*' -o /dev/null -L -b "$jar" -c "$jar" \
+      -H "Accept: $browser_accept" -G --data-urlencode "to=$entry" ||
       die "走不通插件网页的登录跳转（GET $entry）"
   fi
 }
